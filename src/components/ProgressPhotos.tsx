@@ -361,26 +361,49 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
           ctx.fillText(`GPS: ${gps}`, 20, canvas.height - 15);
         }
 
-        // Room Name Big Yellow Watermark
+        // Room Name Big Yellow Watermark — CENTERED, HIGHER, BIGGER
         if (room && room.trim() !== '') {
           ctx.save();
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           
-          // Calculate font size responsive to image width (e.g. 5.5% of width, bounded between 24 and 52)
-          const fontSize = Math.max(24, Math.min(52, Math.round(canvas.width * 0.055)));
+          // Bigger font: 7% of width, bounded between 32 and 72
+          const fontSize = Math.max(32, Math.min(72, Math.round(canvas.width * 0.07)));
           ctx.font = `bold ${fontSize}px "Inter", "Space Grotesk", "Helvetica Neue", sans-serif`;
           
           // Fill yellow
           ctx.fillStyle = '#facc15'; // Yellow-400
           
-          // Position: Bottom center, slightly above the metadata black overlay box (85px high)
+          // Position: Center of image, above the metadata box — much higher
           const x = canvas.width / 2;
-          const y = canvas.height - boxHeight - 35;
+          const y = canvas.height - boxHeight - fontSize - 30;
           
-          // Dark outline for contrast and perfect readability
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-          ctx.lineWidth = 5;
+          // Background pill behind text for contrast
+          const textWidth = ctx.measureText(room.toUpperCase()).width;
+          const pillPadX = 20;
+          const pillPadY = 10;
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.beginPath();
+          const rx = x - textWidth / 2 - pillPadX;
+          const ry = y - fontSize / 2 - pillPadY;
+          const rw = textWidth + pillPadX * 2;
+          const rh = fontSize + pillPadY * 2;
+          const radius = 12;
+          ctx.moveTo(rx + radius, ry);
+          ctx.lineTo(rx + rw - radius, ry);
+          ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + radius);
+          ctx.lineTo(rx + rw, ry + rh - radius);
+          ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - radius, ry + rh);
+          ctx.lineTo(rx + radius, ry + rh);
+          ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - radius);
+          ctx.lineTo(rx, ry + radius);
+          ctx.quadraticCurveTo(rx, ry, rx + radius, ry);
+          ctx.fill();
+          
+          // Yellow text with dark outline
+          ctx.fillStyle = '#facc15';
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+          ctx.lineWidth = 4;
           ctx.strokeText(room.toUpperCase(), x, y);
           ctx.fillText(room.toUpperCase(), x, y);
           ctx.restore();
@@ -569,8 +592,22 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
           folderId = await getOrCreateFolder(gdToken);
         }
 
+        // RE-APPLY watermark ke SEMUA foto dengan roomName saat ini
+        // (safety: memastikan semua foto punya watermark ruangan)
+        const activeRoom = roomName.trim();
+        const finalFiles: string[] = [];
         for (let idx = 0; idx < selectedFiles.length; idx++) {
-          const fileB64 = selectedFiles[idx];
+          const reWatermarked = await processImageAndApplyWatermark(
+            rawFiles[idx] || selectedFiles[idx], // pakai raw (original) kalau ada
+            activeProjectName,
+            includeGps ? activeGps : '',
+            activeRoom
+          );
+          finalFiles.push(reWatermarked);
+        }
+
+        for (let idx = 0; idx < finalFiles.length; idx++) {
+          const fileB64 = finalFiles[idx];
           const photoId = `ph_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
           const singlePayload: any = {
             id: photoId,
@@ -578,7 +615,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
             projectName: activeProjectName,
             date,
             time,
-            notes: selectedFiles.length > 1 ? `${notes} (${idx + 1}/${selectedFiles.length})` : notes,
+            notes: finalFiles.length > 1 ? `${notes} (${idx + 1}/${finalFiles.length})` : notes,
             images: [fileB64],
             gpsLocation: includeGps ? activeGps : undefined,
             driveUrls: [],
@@ -589,7 +626,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
           if (usingGas && autoUpload) {
             try {
-              setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${selectedFiles.length} ke Google Drive (Cloud)...` : `Uploading photo ${idx + 1}/${selectedFiles.length} to Google Drive (Cloud)...`);
+              setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${finalFiles.length} ke Google Drive (Cloud)...` : `Uploading photo ${idx + 1}/${finalFiles.length} to Google Drive (Cloud)...`);
               const uploadRes = await uploadPhotoViaGas(
                 gasUrl,
                 fileB64,
@@ -615,7 +652,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
           } else if (gdToken && autoUpload && folderId) {
             try {
               if (role === 'admin') {
-                setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${selectedFiles.length} ke Google Drive...` : `Uploading photo ${idx + 1}/${selectedFiles.length} to Google Drive...`);
+                setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${finalFiles.length} ke Google Drive...` : `Uploading photo ${idx + 1}/${finalFiles.length} to Google Drive...`);
               }
               const uploadRes = await uploadPhotoToDrive(gdToken, fileB64, filename, folderId);
               if (uploadRes && uploadRes.webViewLink) {
