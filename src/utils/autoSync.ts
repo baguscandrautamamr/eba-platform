@@ -41,7 +41,19 @@ async function doSync(gasUrl: string) {
 
   isSyncing = true;
   try {
-    const db = getLatestData();
+    const db = { ...getLatestData() };
+
+    // PENTING: Strip base64 dari photos agar request tidak terlalu besar
+    // Hanya kirim metadata + driveUrls, bukan gambar mentah
+    if (Array.isArray(db.photos)) {
+      db.photos = db.photos.map((p: any) => ({
+        ...p,
+        images: (p.images || []).map((img: string) =>
+          img.startsWith('data:') ? '' : img // hapus base64, keep URL
+        ).filter(Boolean)
+      }));
+    }
+
     const payload = { action: 'sync_db', type: 'put', db: { ...db, lastUpdated: Date.now() } };
 
     const res = await fetch(gasUrl, {
