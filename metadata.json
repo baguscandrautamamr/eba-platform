@@ -1,0 +1,6 @@
+{
+  "name": "EBA PROJECT",
+  "description": "A comprehensive PWA project management tool for MEP and construction work with budget tracking, daily progress report generator, employee attendance, watermark cameras, and deployment tracking.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
