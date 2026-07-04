@@ -2109,34 +2109,35 @@ function exportDatabaseToSheets(db, folder) {
                 break-after: page !important;
                 display: flex !important;
                 flex-direction: column !important;
-                justify-content: space-between !important;
                 box-sizing: border-box !important;
-                padding: 15mm !important;
+                padding: 10mm 12mm !important;
                 background: white !important;
                 color: black !important;
               }
               .print-grid {
                 display: grid !important;
-                grid-template-cols: repeat(2, minmax(0, 1fr)) !important;
-                gap: 16px !important;
+                grid-template-columns: 1fr 1fr !important;
+                grid-template-rows: repeat(3, 1fr) !important;
+                gap: 0px !important;
                 border: 2px solid black !important;
-                padding: 16px !important;
-                flex-grow: 1 !important;
+                padding: 0 !important;
+                flex: 1 !important;
                 background: white !important;
               }
               .print-cell {
                 border: 1px solid black !important;
-                aspect-ratio: 4/3 !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
                 overflow: hidden !important;
                 background: white !important;
+                min-height: 0 !important;
               }
               .print-img {
                 width: 100% !important;
                 height: 100% !important;
                 object-fit: cover !important;
+                display: block !important;
               }
               @page {
                 size: A4 portrait;
@@ -2260,31 +2261,32 @@ function exportDatabaseToSheets(db, folder) {
                   return (
                     <div
                       key={pageIdx}
-                      className="print-page bg-white text-black p-[15mm] shadow-2xl border border-gray-750/50 mx-auto flex flex-col justify-between"
+                      className="print-page bg-white text-black shadow-2xl border border-gray-750/50 mx-auto flex flex-col"
                       style={{
                         width: '210mm',
                         height: '297mm',
-                        boxSizing: 'border-box'
+                        boxSizing: 'border-box',
+                        padding: '10mm 12mm'
                       }}
                     >
                       {/* Header */}
-                      <div className="text-center mb-6">
+                      <div className="text-center mb-3">
                         <h1 className="text-xs sm:text-sm font-sans font-black underline uppercase tracking-wide text-black max-w-[95%] mx-auto leading-relaxed text-center">
                           {customPrintTitle || (lang === 'id' ? 'LAPORAN PROGRESS DOKUMENTASI' : 'PROJECT SITE PROGRESS DOCUMENTATION REPORT')}
                         </h1>
                       </div>
 
-                      {/* 3x2 Grid Table */}
-                      <div className="print-grid grid grid-cols-2 gap-4 border-2 border-black p-4 flex-grow bg-white">
+                      {/* 3x2 Grid Table - Compact */}
+                      <div className="print-grid border-2 border-black flex-1 bg-white" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: 'repeat(3, 1fr)', gap: 0 }}>
                         {pageImages.map((src, imgIdx) => (
-                          <div key={imgIdx} className="print-cell border border-black aspect-[4/3] flex items-center justify-center overflow-hidden bg-white">
-                            <img src={src} className="print-img w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <div key={imgIdx} className="print-cell border border-black flex items-center justify-center overflow-hidden bg-white" style={{ minHeight: 0 }}>
+                            <img src={src} className="print-img w-full h-full object-cover block" referrerPolicy="no-referrer" />
                           </div>
                         ))}
                       </div>
 
                       {/* Footer */}
-                      <div className="flex items-center justify-between text-[10px] text-gray-500 mt-4 border-t border-gray-200 pt-2 print:border-t-0">
+                      <div className="flex items-center justify-between text-[10px] text-gray-500 mt-2 pt-1">
                         <span className="font-bold uppercase tracking-wider text-gray-400">
                           {lang === 'id' ? 'Laporan Progress Dokumentasi' : 'Documentation Progress Report'}
                         </span>
@@ -2312,30 +2314,30 @@ function exportDatabaseToSheets(db, folder) {
                 return (
                   <div
                     key={pageIdx}
-                    className="print-page bg-white text-black flex flex-col justify-between"
+                    className="print-page bg-white text-black flex flex-col"
                     style={{
                       width: '210mm',
                       height: '297mm',
                       pageBreakAfter: 'always',
                       boxSizing: 'border-box',
-                      padding: '15mm'
+                      padding: '10mm 12mm'
                     }}
                   >
-                    <div className="text-center mb-6">
+                    <div className="text-center mb-3">
                       <h1 className="text-sm font-black underline uppercase tracking-wide text-black max-w-[95%] mx-auto leading-relaxed text-center">
                         {customPrintTitle || (lang === 'id' ? 'LAPORAN PROGRESS DOKUMENTASI' : 'PROJECT SITE PROGRESS DOCUMENTATION REPORT')}
                       </h1>
                     </div>
 
-                    <div className="print-grid grid grid-cols-2 gap-4 border-2 border-black p-4 flex-grow bg-white">
+                    <div className="print-grid border-2 border-black flex-1 bg-white" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: 'repeat(3, 1fr)', gap: 0 }}>
                       {pageImages.map((src, imgIdx) => (
-                        <div key={imgIdx} className="print-cell border border-black aspect-[4/3] flex items-center justify-center overflow-hidden bg-white">
-                          <img src={src} className="print-img w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <div key={imgIdx} className="print-cell border border-black flex items-center justify-center overflow-hidden bg-white" style={{ minHeight: 0 }}>
+                          <img src={src} className="print-img w-full h-full object-cover block" referrerPolicy="no-referrer" />
                         </div>
                       ))}
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] text-gray-500 mt-4 border-t border-gray-200 pt-2 print:border-t-0">
+                    <div className="flex items-center justify-between text-[10px] text-gray-500 mt-2 pt-1">
                       <span className="font-bold uppercase tracking-wider text-gray-400">
                         {lang === 'id' ? 'Laporan Progress Dokumentasi' : 'Documentation Progress Report'}
                       </span>
