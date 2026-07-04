@@ -86,7 +86,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const todayAttendanceCount = attendance.filter(a => a.date === currentDateStr && a.status === 'hadir').length;
   const todayOvertimeHours = overtimes.filter(o => o.date === currentDateStr).reduce((acc, o) => acc + o.hours, 0);
 
-  const isMandor = role === 'mandor';
+  const isMandor = role === 'user';
 
   return (
     <div className="space-y-6" id="dashboard-tab-content">
@@ -213,7 +213,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </h5>
               <p className="text-[11px] text-red-700 dark:text-red-300/80">
                 {lang === 'id' 
-                  ? 'Segera ajukan penagihan atau lakukan verifikasi untuk invoice proyek berikut agar cashflow mandor tetap berjalan lancar.' 
+                  ? 'Segera ajukan penagihan atau lakukan verifikasi untuk invoice proyek berikut agar cashflow operasional tetap berjalan lancar.' 
                   : 'Please process or verify follow-ups on the following project invoices to maintain steady cash flow.'}
               </p>
             </div>

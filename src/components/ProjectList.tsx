@@ -160,15 +160,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     return matSpent + expSpent;
   };
 
-  // If Mandor role: hide all financial data
-  const isMandor = role === 'mandor';
+  // If User role: hide all financial data
+  const isMandor = role === 'user';
 
   return (
     <div className="space-y-6" id="project-list-tab">
       
-      {/* Role Restriction Banner for Mandor */}
+      {/* Role Restriction Banner for User */}
       {isMandor && (
-        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 p-4 rounded-2xl flex items-center gap-3" id="mandor-lock-banner">
+        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 p-4 rounded-2xl flex items-center gap-3" id="user-lock-banner">
           <div className="p-2 bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 rounded-xl">
             <Lock size={18} />
           </div>
@@ -178,8 +178,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
             </h5>
             <p className="text-[11px] text-amber-700 dark:text-amber-400/80 leading-relaxed">
               {lang === 'id' 
-                ? 'Sebagai Mandor Lapangan, Anda memiliki wewenang penuh mencatat progress fisik & absensi. Namun, data anggaran proyek, invoice, dan gaji dirahasiakan.' 
-                : 'As site foreman, you can record daily progress and attendance. Financial budgets, invoices, and payroll remain locked.'}
+                ? 'Sebagai Pengguna Standar, Anda memiliki wewenang penuh mencatat progress fisik & absensi. Namun, data anggaran proyek, invoice, dan gaji dirahasiakan.' 
+                : 'As a standard user, you can record daily progress and attendance. Financial budgets, invoices, and payroll remain locked.'}
             </p>
           </div>
         </div>

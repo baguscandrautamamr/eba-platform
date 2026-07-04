@@ -63,6 +63,19 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
       alert(lang === 'id' ? 'URL tidak valid. Harus diawali dengan https://script.google.com/...' : 'Invalid URL. Must start with https://script.google.com/...');
       return;
     }
+
+    const isEditorUrl = url.includes('/edit') || url.includes('/home') || url.includes('/d/');
+    const isMissingExec = !url.includes('/exec');
+    
+    if (isEditorUrl || isMissingExec) {
+      const errorMsg = lang === 'id' 
+        ? `⚠️ URL YANG ANDA MASUKKAN SALAH!\n\nAnda memasukkan URL Halaman Editor Script (tempat mengetik kode). URL ini TIDAK BISA digunakan oleh aplikasi.\n\nCara mendapatkan URL yang BENAR:\n1. Di editor Google Apps Script Anda, klik tombol biru 'Deploy' di kanan atas.\n2. Pilih 'New deployment'.\n3. Pastikan pengaturannya:\n   - Select type: Web app\n   - Execute as: Me (Email Anda)\n   - Who has access: Anyone (Siapa saja - wajib agar bisa diakses dari aplikasi tanpa login Google)\n4. Klik 'Deploy'.\n5. Salin URL di bawah tulisan 'Web app' (yang berakhiran dengan '/exec').\n6. Tempel (Paste) URL tersebut di sini!`
+        : `⚠️ INVALID URL DETECTED!\n\nYou entered the Script Editor URL (where you write code). This URL CANNOT be used by the application.\n\nHow to get the CORRECT Web App URL:\n1. In your Apps Script editor, click the blue 'Deploy' button in the top right.\n2. Select 'New deployment'.\n3. Set configurations:\n   - Select type: Web app\n   - Execute as: Me (Your email)\n   - Who has access: Anyone (Mandatory so the app can sync data)\n4. Click 'Deploy'.\n5. Copy the URL under the 'Web app' section (which ends with '/exec').\n6. Paste that URL here!`;
+      
+      alert(errorMsg);
+      return;
+    }
+
     setGasUrl(url);
     setGasUrlState(url);
     setIsEditingUrl(false);
@@ -552,13 +565,40 @@ function exportDatabaseToSheets(db, folder) {
               </button>
             </form>
           ) : (
-            <div className="flex items-center justify-between p-2.5 bg-white dark:bg-gray-900 rounded-lg border border-gray-150 dark:border-gray-800 gap-4">
-              <span className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate flex-1">
-                {gasUrlState}
-              </span>
-              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 text-[10px] font-bold rounded-md shrink-0">
-                {lang === 'id' ? 'Aktif' : 'Active'}
-              </span>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between p-2.5 bg-white dark:bg-gray-900 rounded-lg border border-gray-150 dark:border-gray-800 gap-4">
+                <span className={`text-xs font-mono truncate flex-1 ${
+                  (gasUrlState.includes('/edit') || gasUrlState.includes('/home') || gasUrlState.includes('/d/') || !gasUrlState.includes('/exec'))
+                    ? 'text-red-500 font-bold'
+                    : 'text-gray-500 dark:text-gray-400'
+                }`}>
+                  {gasUrlState}
+                </span>
+                <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md shrink-0 ${
+                  (gasUrlState.includes('/edit') || gasUrlState.includes('/home') || gasUrlState.includes('/d/') || !gasUrlState.includes('/exec'))
+                    ? 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400'
+                    : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
+                }`}>
+                  {(gasUrlState.includes('/edit') || gasUrlState.includes('/home') || gasUrlState.includes('/d/') || !gasUrlState.includes('/exec'))
+                    ? (lang === 'id' ? 'Salah!' : 'Error!')
+                    : (lang === 'id' ? 'Aktif' : 'Active')}
+                </span>
+              </div>
+              
+              {(gasUrlState.includes('/edit') || gasUrlState.includes('/home') || gasUrlState.includes('/d/') || !gasUrlState.includes('/exec')) && (
+                <div className="p-2.5 bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 rounded-lg text-[11px] text-red-700 dark:text-red-400 space-y-1">
+                  <p className="font-bold">
+                    {lang === 'id' 
+                      ? '⚠️ URL Anda Salah (URL Editor Terdeteksi)' 
+                      : '⚠️ Wrong URL (Editor URL Detected)'}
+                  </p>
+                  <p className="leading-relaxed text-[10px]">
+                    {lang === 'id'
+                      ? 'Anda menyimpan URL halaman edit script, bukan URL Web App (/exec). Silakan klik "Ubah URL" di kanan atas lalu masukkan URL hasil Deploy (New deployment).'
+                      : 'You saved the script editor URL instead of the Web App URL (/exec). Please click "Change URL" in the top right and enter the actual deployed URL.'}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

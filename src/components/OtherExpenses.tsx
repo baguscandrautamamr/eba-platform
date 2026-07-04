@@ -92,8 +92,8 @@ export const OtherExpenses: React.FC<OtherExpensesProps> = ({
     }
   };
 
-  // If Mandor: obfuscate pricing
-  const isMandor = role === 'mandor';
+  // If User: obfuscate pricing
+  const isMandor = role === 'user';
 
   const filteredExpenses = expenses.filter(e => {
     const matchesProj = filterProj === 'all' || e.projectId === filterProj;
@@ -112,7 +112,7 @@ export const OtherExpenses: React.FC<OtherExpensesProps> = ({
             {lang === 'id' ? 'Pengeluaran Lapangan Lainnya (tb_pengeluaran_lain)' : 'Other Operational Site Expenditures'}
           </h3>
           <p className="text-xs text-gray-400 dark:text-gray-500">
-            {lang === 'id' ? 'Sewa genset, scaffolding, bahan bakar mobil bak, konsumsi mandor & retribusi keamanan' : 'Record equipment hires, site petrol, meals, and administrative fees'}
+            {lang === 'id' ? 'Sewa genset, scaffolding, bahan bakar mobil bak, konsumsi lapangan & retribusi keamanan' : 'Record equipment hires, site petrol, meals, and administrative fees'}
           </p>
         </div>
         <button

@@ -55,11 +55,11 @@ export const Header: React.FC<HeaderProps> = ({
     const selectedRole = e.target.value as UserRole;
     if (selectedRole === role) return;
 
-    if (selectedRole === 'guest') {
-      // Swapping back to Guest requires no credentials
-      setRole('guest');
+    if (selectedRole === 'user') {
+      // Swapping back to User requires no credentials
+      setRole('user');
     } else {
-      // Mandor or Admin requires password validation
+      // Admin requires password validation
       setPendingRole(selectedRole);
       setPinInput('');
       setPinError('');
@@ -74,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
     setPinError('');
 
     if (newPin.length === 4) {
-      const correctPin = pendingRole === 'admin' ? '0009' : '5678';
+      const correctPin = '0009';
       if (newPin === correctPin) {
         setRole(pendingRole!);
         setShowPinModal(false);
@@ -158,8 +158,7 @@ export const Header: React.FC<HeaderProps> = ({
               id="role-dropdown"
             >
               <option value="admin" className="dark:bg-gray-900">{t.admin}</option>
-              <option value="mandor" className="dark:bg-gray-900">{t.mandor}</option>
-              <option value="guest" className="dark:bg-gray-900">{t.guest}</option>
+              <option value="user" className="dark:bg-gray-900">{t.user}</option>
             </select>
           </div>
 
@@ -321,17 +320,13 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Profile Avatar / Icon Indicator */}
             <div className="text-center space-y-1 mb-5">
-              <div className={`w-14 h-14 rounded-2xl mx-auto flex items-center justify-center mb-2.5 shadow-md ${
-                pendingRole === 'admin' 
-                  ? 'bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-400 border border-orange-100 dark:border-orange-900/30' 
-                  : 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-100 dark:border-blue-900/30'
-              }`}>
+              <div className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center mb-2.5 shadow-md bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-400 border border-orange-100 dark:border-orange-900/30">
                 <UserCheck size={28} className="stroke-[2.2]" />
               </div>
               <h3 className="font-sans font-extrabold text-sm text-gray-900 dark:text-white uppercase tracking-wide">
                 {lang === 'id' 
-                  ? `Masuk Sebagai ${pendingRole === 'admin' ? 'Administrator' : 'Mandor Lapangan'}` 
-                  : `Enter as ${pendingRole === 'admin' ? 'Administrator' : 'Field Mandor'}`}
+                  ? 'Masuk Sebagai Administrator' 
+                  : 'Enter as Administrator'}
               </h3>
               <p className="text-[10.5px] text-gray-500 dark:text-gray-400 max-w-[220px] mx-auto leading-normal">
                 {lang === 'id' 

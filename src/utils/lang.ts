@@ -47,8 +47,7 @@ export const translations: Record<'id' | 'en', LanguagePack> = {
     dailyReport: "Laporan Harian",
     role: "Peran Pengguna",
     admin: "Administrator",
-    mandor: "Mandor Lapangan",
-    guest: "Tamu / Owner",
+    user: "User / Pengguna",
     theme: "Tema",
     language: "Bahasa"
   },
@@ -98,8 +97,7 @@ export const translations: Record<'id' | 'en', LanguagePack> = {
     dailyReport: "Daily Report",
     role: "User Role",
     admin: "Administrator",
-    mandor: "Site Foreman",
-    guest: "Guest / Owner",
+    user: "User",
     theme: "Theme",
     language: "Language"
   }

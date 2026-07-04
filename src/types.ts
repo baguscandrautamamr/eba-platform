@@ -1,6 +1,6 @@
 export type Language = 'id' | 'en';
 export type Theme = 'light' | 'dark';
-export type UserRole = 'admin' | 'mandor' | 'guest';
+export type UserRole = 'admin' | 'user';
 
 export interface Project {
   id: string;
@@ -159,8 +159,7 @@ export interface LanguagePack {
   dailyReport: string;
   role: string;
   admin: string;
-  mandor: string;
-  guest: string;
+  user: string;
   theme: string;
   language: string;
 }

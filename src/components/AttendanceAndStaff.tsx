@@ -285,8 +285,8 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
     window.open(url, '_blank');
   };
 
-  // Mandor safety
-  const isMandor = role === 'mandor';
+  // User safety
+  const isMandor = role === 'user';
 
   return (
     <div className="space-y-6" id="attendance-payroll-tab">
@@ -432,7 +432,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                 {lang === 'id' ? 'Presensi Harian Lapangan' : 'Daily Worker Attendance'}
               </h3>
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                {lang === 'id' ? 'Pilih tanggal, sesuaikan kehadiran mandor dan pekerja, lalu kunci data' : 'Set worker attendance state, optional notes, and click lock'}
+                {lang === 'id' ? 'Pilih tanggal, sesuaikan kehadiran pekerja, lalu kunci data' : 'Set worker attendance state, optional notes, and click lock'}
               </p>
             </div>
 

@@ -59,9 +59,9 @@ export default function App() {
   const [lang, setLang] = useState<Language>(() => (localStorage.getItem('EBA_LANG') as Language) || 'id');
   const [role, setRole] = useState<UserRole>(() => {
     const savedRole = localStorage.getItem('EBA_ROLE');
-    if (!savedRole) {
-      localStorage.setItem('EBA_ROLE', 'guest');
-      return 'guest';
+    if (!savedRole || savedRole === 'guest' || savedRole === 'mandor') {
+      localStorage.setItem('EBA_ROLE', 'user');
+      return 'user';
     }
     return savedRole as UserRole;
   });
@@ -101,12 +101,10 @@ export default function App() {
     window.document.documentElement.lang = lang;
   }, [lang]);
 
-  // Handle Guest / Mandor Role restriction
+  // Handle User Role restriction
   useEffect(() => {
-    if (role === 'guest') {
+    if (role === 'user' && activeTab !== 'photos') {
       setActiveTab('photos');
-    } else if (role === 'mandor' && activeTab === 'devops') {
-      setActiveTab('dashboard');
     }
   }, [role, activeTab]);
 
@@ -405,10 +403,13 @@ export default function App() {
     saveToLocalStorage('EBA_PHOTOS', updated);
   };
 
-  const handleDeletePhoto = (id: string) => {
-    const updated = photos.filter(p => p.id !== id);
-    setPhotos(updated);
-    saveToLocalStorage('EBA_PHOTOS', updated);
+  const handleDeletePhoto = (idOrIds: string | string[]) => {
+    setPhotos(prev => {
+      const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+      const updated = prev.filter(p => !ids.includes(p.id));
+      saveToLocalStorage('EBA_PHOTOS', updated);
+      return updated;
+    });
   };
 
   const handleAddOfflineItem = (type: 'photo', payload: any) => {
@@ -515,11 +516,9 @@ export default function App() {
     { id: 'devops', label: t.deployments, icon: Terminal }
   ];
 
-  // Filter tabs for Guest, Mandor, and Admin
-  const filteredTabs = role === 'guest' 
-    ? tabs.filter(tab => tab.id === 'photos') 
-    : role === 'mandor'
-    ? tabs.filter(tab => tab.id !== 'devops')
+  // Filter tabs for User and Admin
+  const filteredTabs = role === 'user' 
+    ? tabs.filter(tab => tab.id === 'photos')
     : tabs;
 
   const showMoreMenu = filteredTabs.length > 4;
@@ -578,7 +577,7 @@ export default function App() {
 
         {/* Dynamic Pages Area */}
         <main className="flex-1 min-w-0" id="main-route-outlet">
-          {activeTab === 'dashboard' && role !== 'guest' && (
+          {activeTab === 'dashboard' && (
             <Dashboard 
               projects={projects}
               materials={materials}
@@ -595,7 +594,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'projects' && role !== 'guest' && (
+          {activeTab === 'projects' && (
             <ProjectList 
               projects={projects}
               materials={materials}
@@ -613,7 +612,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'materials' && role !== 'guest' && (
+          {activeTab === 'materials' && (
             <Materials 
               projects={projects}
               materials={materials}
@@ -640,7 +639,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'attendance' && role !== 'guest' && (
+          {activeTab === 'attendance' && (
             <AttendanceAndStaff 
               employees={employees}
               attendance={attendance}
@@ -661,7 +660,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'expenses' && role !== 'guest' && (
+          {activeTab === 'expenses' && (
             <OtherExpenses 
               projects={projects}
               expenses={otherExpenses}
@@ -673,7 +672,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'report' && role !== 'guest' && (
+          {activeTab === 'report' && (
             <ReportShare 
               projects={projects}
               materials={materials}

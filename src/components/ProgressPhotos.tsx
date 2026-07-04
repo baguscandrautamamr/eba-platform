@@ -22,7 +22,7 @@ interface ProgressPhotosProps {
   photos: ProgressPhoto[];
   onAddPhoto: (photo: Omit<ProgressPhoto, 'id' | 'watermarked' | 'driveUrls'>) => void;
   onUpdatePhoto: (photo: ProgressPhoto) => void;
-  onDeletePhoto: (id: string) => void;
+  onDeletePhoto: (id: string | string[]) => void;
   isOffline: boolean;
   offlineQueue: any[];
   onAddOfflineItem: (type: 'photo', payload: any) => void;
@@ -104,57 +104,16 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
   // Delete single photo (handles Google Drive sync)
   const handleDeleteSinglePhoto = async (ph: ProgressPhoto) => {
-    setIsBackingUp(true);
-    setBackupStatus(lang === 'id' ? 'Menghapus foto dari Google Drive...' : 'Deleting photo from Google Drive...');
+    // 1. Immediately delete from local/parent state for instant UI response!
+    onDeletePhoto(ph.id);
+    setActiveLightboxPhoto(null);
+    setDeleteConfirmId(null);
+    setSelectedPhotos(prev => prev.filter(id => id !== ph.id));
 
-    try {
-      const usingGas = !!gasUrl;
-      if (ph.driveUrls && ph.driveUrls.length > 0) {
-        const fileId = extractDriveFileId(ph.driveUrls[0]);
-        if (fileId) {
-          try {
-            if (usingGas) {
-              await deletePhotoViaGas(gasUrl, fileId);
-            } else if (gdToken) {
-              await deletePhotoFromDrive(gdToken, fileId);
-            }
-          } catch (err) {
-            console.error(`Failed to delete file ${fileId} from Drive:`, err);
-          }
-        }
-      }
-    } catch (err: any) {
-      console.error('Error deleting single photo from Drive:', err);
-    } finally {
-      setIsBackingUp(false);
-      setBackupStatus('');
-      // Proceed to delete locally
-      onDeletePhoto(ph.id);
-      setActiveLightboxPhoto(null);
-      setDeleteConfirmId(null);
-      // Remove from selected list if present
-      setSelectedPhotos(prev => prev.filter(id => id !== ph.id));
-    }
-  };
-
-  // Delete multiple selected photos (handles Google Drive sync)
-  const handleDeleteSelectedPhotos = async () => {
-    if (selectedPhotos.length === 0) return;
-
-    const confirmMessage = lang === 'id'
-      ? `Apakah Anda yakin ingin menghapus ${selectedPhotos.length} foto terpilih? Tindakan ini akan menghapus foto dari pangkalan data dan juga dari Google Drive (jika ada).`
-      : `Are you sure you want to delete ${selectedPhotos.length} selected photo(s)? This will delete them from the local database and Google Drive (if synced).`;
-
-    if (!window.confirm(confirmMessage)) return;
-
-    setIsBackingUp(true);
-    setBackupStatus(lang === 'id' ? 'Menghapus foto-foto dari Google Drive...' : 'Deleting photos from Google Drive...');
-
-    try {
-      const photosToDelete = photos.filter(p => selectedPhotos.includes(p.id));
-      const usingGas = !!gasUrl;
-
-      const deletePromises = photosToDelete.map(async (ph) => {
+    // 2. Perform Drive deletion in the background asynchronously
+    const usingGas = !!gasUrl;
+    if (usingGas || gdToken) {
+      (async () => {
         if (ph.driveUrls && ph.driveUrls.length > 0) {
           const fileId = extractDriveFileId(ph.driveUrls[0]);
           if (fileId) {
@@ -169,17 +128,51 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
             }
           }
         }
-        // Always delete from local/parent state regardless of Drive success
-        onDeletePhoto(ph.id);
-      });
+      })();
+    }
+  };
 
-      await Promise.all(deletePromises);
-      setSelectedPhotos([]);
-    } catch (err: any) {
-      console.error('Error in batch photo deletion:', err);
-    } finally {
-      setIsBackingUp(false);
-      setBackupStatus('');
+  // Delete multiple selected photos (handles Google Drive sync)
+  const handleDeleteSelectedPhotos = async () => {
+    if (selectedPhotos.length === 0) return;
+
+    const confirmMessage = lang === 'id'
+      ? `Apakah Anda yakin ingin menghapus ${selectedPhotos.length} foto terpilih? Tindakan ini akan menghapus foto dari pangkalan data dan juga dari Google Drive (jika ada).`
+      : `Are you sure you want to delete ${selectedPhotos.length} selected photo(s)? This will delete them from the local database and Google Drive (if synced).`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    // 1. Immediately delete from local/parent state for instant UI response!
+    const photosToDelete = photos.filter(p => selectedPhotos.includes(p.id));
+    onDeletePhoto(selectedPhotos);
+    setSelectedPhotos([]);
+
+    // 2. Perform Drive deletion in the background asynchronously
+    const usingGas = !!gasUrl;
+    if (usingGas || gdToken) {
+      (async () => {
+        try {
+          const deletePromises = photosToDelete.map(async (ph) => {
+            if (ph.driveUrls && ph.driveUrls.length > 0) {
+              const fileId = extractDriveFileId(ph.driveUrls[0]);
+              if (fileId) {
+                try {
+                  if (usingGas) {
+                    await deletePhotoViaGas(gasUrl, fileId);
+                  } else if (gdToken) {
+                    await deletePhotoFromDrive(gdToken, fileId);
+                  }
+                } catch (err) {
+                  console.error(`Failed to delete file ${fileId} from Drive:`, err);
+                }
+              }
+            }
+          });
+          await Promise.all(deletePromises);
+        } catch (err) {
+          console.error('Error in background Drive batch deletion:', err);
+        }
+      })();
     }
   };
 
@@ -601,16 +594,30 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
   const handleSaveGasUrl = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gasInput.trim()) {
+    let url = gasInput.trim();
+    if (!url) {
       alert(lang === 'id' ? 'Silakan masukkan URL Google Apps Script Web App yang valid.' : 'Please enter a valid Google Apps Script Web App URL.');
       return;
     }
-    if (!gasInput.trim().startsWith('https://script.google.com/')) {
+    if (!url.startsWith('https://script.google.com/')) {
       alert(lang === 'id' ? 'URL tidak valid. Harus diawali dengan https://script.google.com/...' : 'Invalid URL. Must start with https://script.google.com/...');
       return;
     }
-    setGasUrl(gasInput.trim());
-    setGasUrlState(gasInput.trim());
+
+    const isEditorUrl = url.includes('/edit') || url.includes('/home') || url.includes('/d/');
+    const isMissingExec = !url.includes('/exec');
+    
+    if (isEditorUrl || isMissingExec) {
+      const errorMsg = lang === 'id' 
+        ? `⚠️ URL YANG ANDA MASUKKAN SALAH!\n\nAnda memasukkan URL Halaman Editor Script (tempat mengetik kode). URL ini TIDAK BISA digunakan oleh aplikasi.\n\nCara mendapatkan URL yang BENAR:\n1. Di editor Google Apps Script Anda, klik tombol biru 'Deploy' di kanan atas.\n2. Pilih 'New deployment'.\n3. Pastikan pengaturannya:\n   - Select type: Web app\n   - Execute as: Me (Email Anda)\n   - Who has access: Anyone (Siapa saja - wajib agar bisa diakses dari aplikasi tanpa login Google)\n4. Klik 'Deploy'.\n5. Salin URL di bawah tulisan 'Web app' (yang berakhiran dengan '/exec').\n6. Tempel (Paste) URL tersebut di sini!`
+        : `⚠️ INVALID URL DETECTED!\n\nYou entered the Script Editor URL (where you write code). This URL CANNOT be used by the application.\n\nHow to get the CORRECT Web App URL:\n1. In your Apps Script editor, click the blue 'Deploy' button in the top right.\n2. Select 'New deployment'.\n3. Set configurations:\n   - Select type: Web app\n   - Execute as: Me (Your email)\n   - Who has access: Anyone (Mandatory so the app can sync data)\n4. Click 'Deploy'.\n5. Copy the URL under the 'Web app' section (which ends with '/exec').\n6. Paste that URL here!`;
+      
+      alert(errorMsg);
+      return;
+    }
+
+    setGasUrl(url);
+    setGasUrlState(url);
     alert(lang === 'id' ? 'Koneksi Google Apps Script berhasil disimpan & diaktifkan!' : 'Google Apps Script connection successfully saved & activated!');
   };
 
@@ -1097,20 +1104,42 @@ function exportDatabaseToSheets(db, folder) {
                   </form>
                 </div>
               ) : (
-                <div className="space-y-4 p-4 bg-emerald-50/20 dark:bg-emerald-950/10 rounded-xl border border-emerald-100/50 dark:border-emerald-900/25">
+                <div className={`space-y-4 p-4 rounded-xl border ${
+                  gasUrl && (gasUrl.includes('/edit') || gasUrl.includes('/home') || gasUrl.includes('/d/') || !gasUrl.includes('/exec'))
+                    ? 'bg-red-50/25 dark:bg-red-950/10 border-red-200 dark:border-red-900/30'
+                    : 'bg-emerald-50/20 dark:bg-emerald-950/10 border-emerald-100/50 dark:border-emerald-900/25'
+                }`}>
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        gasUrl && (gasUrl.includes('/edit') || gasUrl.includes('/home') || gasUrl.includes('/d/') || !gasUrl.includes('/exec'))
+                          ? 'bg-red-100 text-red-650 dark:bg-red-900/30 dark:text-red-400'
+                          : 'bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400'
+                      }`}>
                         <CheckCircle size={20} />
                       </div>
                       <div>
                         <div className="flex items-center gap-1.5">
                           <p className="text-xs font-bold text-gray-800 dark:text-gray-200">
-                            {lang === 'id' ? 'Terkoneksi via Google Apps Script' : 'Connected via Google Apps Script'}
+                            {gasUrl && (gasUrl.includes('/edit') || gasUrl.includes('/home') || gasUrl.includes('/d/') || !gasUrl.includes('/exec'))
+                              ? (lang === 'id' ? '⚠️ URL Google Apps Script Salah!' : '⚠️ Apps Script URL Invalid!')
+                              : (lang === 'id' ? 'Terkoneksi via Google Apps Script' : 'Connected via Google Apps Script')}
                           </p>
-                          <span className="px-1.5 py-0.5 text-[8px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/45 dark:text-emerald-400 rounded uppercase">AUTOMATIC</span>
+                          <span className={`px-1.5 py-0.5 text-[8px] font-black rounded uppercase ${
+                            gasUrl && (gasUrl.includes('/edit') || gasUrl.includes('/home') || gasUrl.includes('/d/') || !gasUrl.includes('/exec'))
+                              ? 'bg-red-100 text-red-800 dark:bg-red-900/45 dark:text-red-400'
+                              : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/45 dark:text-emerald-400'
+                          }`}>
+                            {gasUrl && (gasUrl.includes('/edit') || gasUrl.includes('/home') || gasUrl.includes('/d/') || !gasUrl.includes('/exec'))
+                              ? (lang === 'id' ? 'SALAH' : 'ERROR')
+                              : 'AUTOMATIC'}
+                          </span>
                         </div>
-                        <p className="text-[11px] text-gray-400 truncate max-w-sm sm:max-w-md font-mono mt-0.5">
+                        <p className={`text-[11px] truncate max-w-sm sm:max-w-md font-mono mt-0.5 ${
+                          gasUrl && (gasUrl.includes('/edit') || gasUrl.includes('/home') || gasUrl.includes('/d/') || !gasUrl.includes('/exec'))
+                            ? 'text-red-500 font-bold'
+                            : 'text-gray-400'
+                        }`}>
                           {gasUrl}
                         </p>
                       </div>
@@ -1122,10 +1151,25 @@ function exportDatabaseToSheets(db, folder) {
                         onClick={handleDisconnectGas}
                         className="px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/30 text-red-650 text-xs font-bold rounded-lg transition-colors cursor-pointer"
                       >
-                        {lang === 'id' ? 'Putuskan Hubungan' : 'Disconnect'}
+                        {lang === 'id' ? 'Putuskan Hubungan / Ubah' : 'Disconnect / Change'}
                       </button>
                     </div>
                   </div>
+
+                  {gasUrl && (gasUrl.includes('/edit') || gasUrl.includes('/home') || gasUrl.includes('/d/') || !gasUrl.includes('/exec')) && (
+                    <div className="p-3 bg-red-100/40 dark:bg-red-950/20 rounded-xl text-xs text-red-800 dark:text-red-400 space-y-1 leading-relaxed border border-red-200 dark:border-red-900/30">
+                      <p className="font-bold">
+                        {lang === 'id' 
+                          ? '⚠️ Anda Memasukkan URL Editor (Bukan Web App)' 
+                          : '⚠️ Editor URL Detected Instead of Web App'}
+                      </p>
+                      <p className="text-[11px]">
+                        {lang === 'id'
+                          ? 'URL di atas adalah URL halaman tempat mengetik kode script. URL yang benar wajib berakhiran dengan "/exec". Silakan klik tombol "Putuskan Hubungan / Ubah" di atas, lalu ikuti panduan setup di bawah untuk mendapatkan URL Web App yang benar.'
+                          : 'The URL above is the editor URL where you write code. The correct URL must end with "/exec". Please click "Disconnect / Change" above and follow the instructions below to get your correct Web App URL.'}
+                      </p>
+                    </div>
+                  )}
 
                   <div className="pt-3 border-t border-emerald-100/50 dark:border-emerald-900/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs">
                     {/* Auto Upload Toggle */}

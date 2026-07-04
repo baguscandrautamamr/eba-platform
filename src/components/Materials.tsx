@@ -81,8 +81,8 @@ export const Materials: React.FC<MaterialsProps> = ({
     }).format(val);
   };
 
-  // If Mandor: hide all financial columns and inputs
-  const isMandor = role === 'mandor';
+  // If User: hide all financial columns and inputs
+  const isMandor = role === 'user';
 
   // Filter materials
   const filteredMaterials = materials.filter(m => {
