@@ -248,12 +248,14 @@ export default function App() {
   const handleAddPhoto = (newPhoto: Omit<ProgressPhoto, 'id' | 'watermarked'>) => {
     const photo: ProgressPhoto = {
       ...newPhoto,
-      id: `ph_${Date.now()}`,
+      id: `ph_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       watermarked: true
     };
-    const updated = [photo, ...photos];
-    setPhotos(updated);
-    saveToLocalStorage('EBA_PHOTOS', updated);
+    setPhotos(prev => {
+      const updated = [photo, ...prev];
+      saveToLocalStorage('EBA_PHOTOS', updated);
+      return updated;
+    });
   };
 
   const handleAddEmployee = (newEmp: Omit<Employee, 'id'>) => {
@@ -384,12 +386,12 @@ export default function App() {
 
   const handleAddOfflineItem = (type: 'photo', payload: any) => {
     const queueItem: UploadQueueItem = {
-      id: `q_${Date.now()}`,
+      id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       type,
       payload,
       timestamp: Date.now()
     };
-    setOfflineQueue([...offlineQueue, queueItem]);
+    setOfflineQueue(prev => [...prev, queueItem]);
   };
 
   const handleSyncQueue = () => {

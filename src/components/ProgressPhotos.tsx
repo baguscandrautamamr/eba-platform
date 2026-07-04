@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Project, ProgressPhoto, Language, UserRole } from '../types';
-import { Camera, Image as ImageIcon, MapPin, Loader2, UploadCloud, CheckCircle, WifiOff, RefreshCw, Layers, Edit2, Trash2, Calendar } from 'lucide-react';
+import { Camera, Image as ImageIcon, MapPin, Loader2, UploadCloud, CheckCircle, WifiOff, RefreshCw, Layers, Edit2, Trash2, Calendar, Printer, Download } from 'lucide-react';
 
 interface ProgressPhotosProps {
   projects: Project[];
@@ -38,6 +39,61 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
   // Lightbox Detail state
   const [activeLightboxPhoto, setActiveLightboxPhoto] = useState<ProgressPhoto | null>(null);
+
+  // Print & Download states
+  const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [customPrintTitle, setCustomPrintTitle] = useState('');
+  const [printScope, setPrintScope] = useState<'filtered' | 'all-project'>('filtered');
+
+  // Handler for downloading filtered photos
+  const handleDownloadAll = () => {
+    if (filteredPhotos.length === 0) return;
+
+    const imagesToDownload: { url: string; filename: string }[] = [];
+    
+    filteredPhotos.forEach((ph) => {
+      ph.images.forEach((img, idx) => {
+        const projNameSanitized = ph.projectName.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const filename = `${projNameSanitized}_${ph.date}_${ph.time.replace(/:/g, '-')}_img${idx + 1}.jpg`;
+        imagesToDownload.push({ url: img, filename });
+      });
+    });
+
+    if (imagesToDownload.length === 0) {
+      alert(lang === 'id' ? 'Tidak ada foto untuk diunduh.' : 'No photos to download.');
+      return;
+    }
+
+    alert(lang === 'id' 
+      ? `Mengunduh ${imagesToDownload.length} foto secara berurutan...` 
+      : `Downloading ${imagesToDownload.length} photos sequentially...`
+    );
+
+    imagesToDownload.forEach((item, index) => {
+      setTimeout(() => {
+        const link = document.createElement('a');
+        link.href = item.url;
+        link.download = item.filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }, index * 250);
+    });
+  };
+
+  const handleOpenPrintPreview = () => {
+    const activeProject = projects.find(p => p.id === selectedProjectFilter);
+    setCustomPrintTitle(activeProject ? activeProject.name : (lang === 'id' ? 'PEKERJAAN PELAKSANAAN PERAWATAN DAN PENGECEKAN POMPA PEMADAM KEBAKARAN/HYDRANT PUMP DI BBPMGB LEMIGAS' : 'PROJECT SITE PROGRESS DOCUMENTATION REPORT'));
+    setPrintScope('filtered');
+    setShowPrintPreview(true);
+  };
+
+  const getPhotosToPrint = () => {
+    if (printScope === 'all-project') {
+      return photos.filter(ph => !selectedProjectFilter || ph.projectId === selectedProjectFilter);
+    }
+    return filteredPhotos;
+  };
 
   // Filtered photos helper
   const getFilteredPhotos = () => {
@@ -198,25 +254,37 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
     const date = now.toISOString().split('T')[0];
     const time = now.toTimeString().split(' ')[0];
 
-    const payload = {
-      projectId: selProjId,
-      projectName: activeProjectName,
-      date,
-      time,
-      notes,
-      images: selectedFiles,
-      gpsLocation: includeGps ? activeGps : undefined
-    };
-
     if (isOffline) {
-      // Add to offline queue
-      onAddOfflineItem('photo', payload);
+      // Add each photo to offline queue separately so they get synced as individual photos
+      selectedFiles.forEach((fileB64, idx) => {
+        const singlePayload = {
+          projectId: selProjId,
+          projectName: activeProjectName,
+          date,
+          time,
+          notes: selectedFiles.length > 1 ? `${notes} (${idx + 1}/${selectedFiles.length})` : notes,
+          images: [fileB64],
+          gpsLocation: includeGps ? activeGps : undefined
+        };
+        onAddOfflineItem('photo', singlePayload);
+      });
       setNotes('');
       setSelectedFiles([]);
       alert(lang === 'id' ? 'Tersimpan dalam antrean upload offline! Foto akan terkirim setelah online.' : 'Saved in offline upload queue! Photos will sync once online.');
     } else {
-      // Sync immediately
-      onAddPhoto(payload);
+      // Sync each photo immediately as its own separate record
+      selectedFiles.forEach((fileB64, idx) => {
+        const singlePayload = {
+          projectId: selProjId,
+          projectName: activeProjectName,
+          date,
+          time,
+          notes: selectedFiles.length > 1 ? `${notes} (${idx + 1}/${selectedFiles.length})` : notes,
+          images: [fileB64],
+          gpsLocation: includeGps ? activeGps : undefined
+        };
+        onAddPhoto(singlePayload);
+      });
       setNotes('');
       setSelectedFiles([]);
     }
@@ -499,6 +567,59 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
             </button>
           ))}
         </div>
+
+        {/* Action Button Row for Download & Print PDF */}
+        <div className="pt-3 border-t border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-[11px] text-gray-500 dark:text-gray-400">
+            {lang === 'id' ? 'Aksi untuk:' : 'Actions for:'}{' '}
+            <span className="font-bold text-gray-850 dark:text-gray-100">
+              {selectedProjectFilter ? projects.find(p => p.id === selectedProjectFilter)?.name : (lang === 'id' ? 'Semua Proyek' : 'All Projects')}
+            </span>
+            {' • '}
+            <span className="font-bold text-orange-600">
+              {timeRangeFilter === 'all' && (lang === 'id' ? 'Semua Foto' : 'All Photos')}
+              {timeRangeFilter === 'today' && (lang === 'id' ? 'Hari Ini' : 'Today')}
+              {timeRangeFilter === 'week' && (lang === 'id' ? '7 Hari Terakhir' : 'Last 7 Days')}
+              {timeRangeFilter === 'month' && (lang === 'id' ? 'Bulan Ini' : 'This Month')}
+              {timeRangeFilter === 'lastMonth' && (lang === 'id' ? 'Bulan Lalu' : 'Last Month')}
+              {timeRangeFilter === 'twoMonthsAgo' && (lang === 'id' ? '2 Bulan Lalu' : '2 Months Ago')}
+            </span>
+            {selectedDateFilter && ` (${selectedDateFilter})`}
+            {` (${filteredPhotos.length} ${lang === 'id' ? 'foto' : 'photos'})`}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Download Button */}
+            <button
+              type="button"
+              onClick={handleDownloadAll}
+              disabled={filteredPhotos.length === 0}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                filteredPhotos.length === 0
+                  ? 'bg-gray-100 text-gray-400 dark:bg-gray-900 dark:text-gray-600 cursor-not-allowed'
+                  : 'bg-orange-600 hover:bg-orange-700 text-white shadow-sm hover:shadow active:scale-[0.98]'
+              }`}
+            >
+              <Download size={13} />
+              <span>{lang === 'id' ? 'Unduh Foto' : 'Download Photos'}</span>
+            </button>
+
+            {/* Print PDF Button */}
+            <button
+              type="button"
+              onClick={handleOpenPrintPreview}
+              disabled={filteredPhotos.length === 0}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                filteredPhotos.length === 0
+                  ? 'bg-gray-100 text-gray-400 dark:bg-gray-900 dark:text-gray-600 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-750 text-white shadow-sm hover:shadow active:scale-[0.98]'
+              }`}
+            >
+              <Printer size={13} />
+              <span>{lang === 'id' ? 'Cetak PDF Laporan' : 'Print PDF Report'}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Progress Log Gallery */}
@@ -740,6 +861,284 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
             </div>
           </form>
         </div>
+      )}
+
+      {/* Print Preview Portal */}
+      {showPrintPreview && createPortal(
+        <div id="print-report-body-portal" className="fixed inset-0 bg-gray-900/95 text-white overflow-y-auto z-50 flex flex-col p-4 sm:p-6 md:p-8 animate-in fade-in duration-200">
+          <style>{`
+            @media print {
+              #root {
+                display: none !important;
+              }
+              #print-report-body-portal {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                background: white !important;
+                color: black !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+                display: block !important;
+              }
+              .no-print {
+                display: none !important;
+              }
+              .print-page {
+                width: 210mm !important;
+                height: 297mm !important;
+                margin: 0 !important;
+                border: none !important;
+                box-shadow: none !important;
+                page-break-after: always !important;
+                break-after: page !important;
+                display: flex !important;
+                flex-direction: column !important;
+                justify-content: space-between !important;
+                box-sizing: border-box !important;
+                padding: 15mm !important;
+                background: white !important;
+                color: black !important;
+              }
+              .print-grid {
+                display: grid !important;
+                grid-template-cols: repeat(2, minmax(0, 1fr)) !important;
+                gap: 16px !important;
+                border: 2px solid black !important;
+                padding: 16px !important;
+                flex-grow: 1 !important;
+                background: white !important;
+              }
+              .print-cell {
+                border: 1px solid black !important;
+                aspect-ratio: 4/3 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                overflow: hidden !important;
+                background: white !important;
+              }
+              .print-img {
+                width: 100% !important;
+                height: 100% !important;
+                object-fit: cover !important;
+              }
+              @page {
+                size: A4 portrait;
+                margin: 0;
+              }
+            }
+          `}</style>
+
+          {/* Top Control Bar (Hidden on print) */}
+          <div className="no-print bg-gray-800 border border-gray-750 p-4 sm:p-5 rounded-2xl max-w-4xl w-full mx-auto shadow-2xl space-y-4 mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-sans font-black text-orange-500 uppercase tracking-wider flex items-center gap-2">
+                  <Printer size={16} />
+                  <span>{lang === 'id' ? 'Pengaturan Print PDF Laporan' : 'Print PDF Report Settings'}</span>
+                </h3>
+                <p className="text-xs text-gray-400 mt-1">
+                  {lang === 'id' 
+                    ? 'Tinjau tampilan lembar laporan sebelum mencetak atau menyimpan sebagai PDF' 
+                    : 'Preview document pages before printing or saving to PDF file'}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-md active:scale-[0.98]"
+                >
+                  <Printer size={13} />
+                  <span>{lang === 'id' ? 'Cetak Sekarang' : 'Print Now'}</span>
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => setShowPrintPreview(false)}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-bold rounded-xl transition-all"
+                >
+                  {lang === 'id' ? 'Tutup' : 'Close'}
+                </button>
+              </div>
+            </div>
+
+            {/* Control Inputs */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-gray-750">
+              {/* Title Input */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                  {lang === 'id' ? 'Judul Laporan (Kapital)' : 'Report Title (Caps)'}
+                </label>
+                <input
+                  type="text"
+                  value={customPrintTitle}
+                  onChange={(e) => setCustomPrintTitle(e.target.value.toUpperCase())}
+                  placeholder={lang === 'id' ? 'E.g. NAMA PROYEK' : 'E.g. PROJECT NAME'}
+                  className="w-full px-3 py-2 text-xs border border-gray-700 bg-gray-900 text-white rounded-xl focus:outline-none focus:ring-1 focus:ring-orange-500"
+                />
+              </div>
+
+              {/* Print Scope selection */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                  {lang === 'id' ? 'Cakupan Foto Laporan' : 'Report Photos Scope'}
+                </label>
+                <div className="flex items-center gap-4 mt-2">
+                  <label className="flex items-center gap-2 text-xs cursor-pointer text-gray-300 hover:text-white">
+                    <input
+                      type="radio"
+                      name="printScope"
+                      checked={printScope === 'filtered'}
+                      onChange={() => setPrintScope('filtered')}
+                      className="accent-orange-500"
+                    />
+                    <span>
+                      {lang === 'id' 
+                        ? `Sesuai Filter Aktif (${filteredPhotos.length} foto)` 
+                        : `Active Filtered Only (${filteredPhotos.length} photos)`}
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs cursor-pointer text-gray-300 hover:text-white">
+                    <input
+                      type="radio"
+                      name="printScope"
+                      checked={printScope === 'all-project'}
+                      onChange={() => setPrintScope('all-project')}
+                      className="accent-orange-500"
+                    />
+                    <span>
+                      {lang === 'id' 
+                        ? `Semua Foto Proyek (${photos.filter(ph => !selectedProjectFilter || ph.projectId === selectedProjectFilter).length} foto)` 
+                        : `All Project Photos (${photos.filter(ph => !selectedProjectFilter || ph.projectId === selectedProjectFilter).length} photos)`}
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Scrollable Printable Canvas Wrapper */}
+          <div className="no-print flex-grow flex items-start justify-center overflow-x-auto py-2">
+            <div className="space-y-8 select-none">
+              {(() => {
+                const scopePhotos = getPhotosToPrint();
+                const allImages = scopePhotos.flatMap(ph => ph.images);
+                
+                if (allImages.length === 0) {
+                  return (
+                    <div className="text-center text-gray-400 py-12 text-sm bg-gray-800 rounded-2xl p-8 max-w-md">
+                      {lang === 'id' 
+                        ? 'Tidak ada foto dokumentasi yang cocok dengan kriteria cetak.' 
+                        : 'No documentation photos match the current print criteria.'}
+                    </div>
+                  );
+                }
+
+                const pageSize = 6;
+                const pagesCount = Math.ceil(allImages.length / pageSize);
+                
+                return Array.from({ length: pagesCount }).map((_, pageIdx) => {
+                  const pageImages = allImages.slice(pageIdx * pageSize, (pageIdx + 1) * pageSize);
+                  return (
+                    <div
+                      key={pageIdx}
+                      className="print-page bg-white text-black p-[15mm] shadow-2xl border border-gray-750/50 mx-auto flex flex-col justify-between"
+                      style={{
+                        width: '210mm',
+                        height: '297mm',
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      {/* Header */}
+                      <div className="text-center mb-6">
+                        <h1 className="text-xs sm:text-sm font-sans font-black underline uppercase tracking-wide text-black max-w-[95%] mx-auto leading-relaxed text-center">
+                          {customPrintTitle || (lang === 'id' ? 'LAPORAN PROGRESS DOKUMENTASI' : 'PROJECT SITE PROGRESS DOCUMENTATION REPORT')}
+                        </h1>
+                      </div>
+
+                      {/* 3x2 Grid Table */}
+                      <div className="print-grid grid grid-cols-2 gap-4 border-2 border-black p-4 flex-grow bg-white">
+                        {pageImages.map((src, imgIdx) => (
+                          <div key={imgIdx} className="print-cell border border-black aspect-[4/3] flex items-center justify-center overflow-hidden bg-white">
+                            <img src={src} className="print-img w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Footer */}
+                      <div className="flex items-center justify-between text-[10px] text-gray-500 mt-4 border-t border-gray-200 pt-2 print:border-t-0">
+                        <span className="font-bold uppercase tracking-wider text-gray-400">
+                          {lang === 'id' ? 'Laporan Progress Dokumentasi' : 'Documentation Progress Report'}
+                        </span>
+                        <span>
+                          {lang === 'id' ? 'Halaman' : 'Page'} {pageIdx + 1} {lang === 'id' ? 'dari' : 'of'} {pagesCount}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+
+          {/* Print-only duplicate target for clean window printing */}
+          <div className="hidden print:block">
+            {(() => {
+              const scopePhotos = getPhotosToPrint();
+              const allImages = scopePhotos.flatMap(ph => ph.images);
+              const pageSize = 6;
+              const pagesCount = Math.ceil(allImages.length / pageSize);
+              
+              return Array.from({ length: pagesCount }).map((_, pageIdx) => {
+                const pageImages = allImages.slice(pageIdx * pageSize, (pageIdx + 1) * pageSize);
+                return (
+                  <div
+                    key={pageIdx}
+                    className="print-page bg-white text-black flex flex-col justify-between"
+                    style={{
+                      width: '210mm',
+                      height: '297mm',
+                      pageBreakAfter: 'always',
+                      boxSizing: 'border-box',
+                      padding: '15mm'
+                    }}
+                  >
+                    <div className="text-center mb-6">
+                      <h1 className="text-sm font-black underline uppercase tracking-wide text-black max-w-[95%] mx-auto leading-relaxed text-center">
+                        {customPrintTitle || (lang === 'id' ? 'LAPORAN PROGRESS DOKUMENTASI' : 'PROJECT SITE PROGRESS DOCUMENTATION REPORT')}
+                      </h1>
+                    </div>
+
+                    <div className="print-grid grid grid-cols-2 gap-4 border-2 border-black p-4 flex-grow bg-white">
+                      {pageImages.map((src, imgIdx) => (
+                        <div key={imgIdx} className="print-cell border border-black aspect-[4/3] flex items-center justify-center overflow-hidden bg-white">
+                          <img src={src} className="print-img w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-gray-500 mt-4 border-t border-gray-200 pt-2 print:border-t-0">
+                      <span className="font-bold uppercase tracking-wider text-gray-400">
+                        {lang === 'id' ? 'Laporan Progress Dokumentasi' : 'Documentation Progress Report'}
+                      </span>
+                      <span>
+                        {lang === 'id' ? 'Halaman' : 'Page'} {pageIdx + 1} {lang === 'id' ? 'dari' : 'of'} {pagesCount}
+                      </span>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+
+        </div>,
+        document.body
       )}
 
     </div>

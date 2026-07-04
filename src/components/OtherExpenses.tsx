@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Project, OtherExpense, Language, UserRole } from '../types';
 import { Plus, Search, Filter, Lock, HelpCircle, Edit2, Trash2 } from 'lucide-react';
+import { formatNumberInput, parseFormattedNumber } from '../utils/currency';
 
 interface OtherExpensesProps {
   projects: Project[];
@@ -42,7 +43,7 @@ export const OtherExpenses: React.FC<OtherExpensesProps> = ({
   // New Expense Form State
   const [selProjId, setSelProjId] = useState(projects[0]?.id || '');
   const [category, setCategory] = useState<'sewa_alat' | 'transport' | 'konsumsi' | 'retribusi' | 'lain_lain'>('sewa_alat');
-  const [amount, setAmount] = useState(0);
+  const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -54,11 +55,11 @@ export const OtherExpenses: React.FC<OtherExpensesProps> = ({
       projectName: projects.find(p => p.id === selProjId)?.name || '',
       date: new Date().toISOString().split('T')[0],
       category,
-      amount: Number(amount),
+      amount: parseFormattedNumber(amount),
       note
     });
 
-    setAmount(0);
+    setAmount('');
     setNote('');
     setShowAdd(false);
   };
@@ -168,14 +169,14 @@ export const OtherExpenses: React.FC<OtherExpensesProps> = ({
                   <span>{lang === 'id' ? 'Input keuangan dikunci untuk Mandor.' : 'Inputs restricted under Site Foreman.'}</span>
                 </div>
               ) : (
-                <input
-                  type="number"
-                  required
-                  value={amount === 0 ? '' : amount}
-                  onChange={(e) => setAmount(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-xs border rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700 font-mono"
-                  placeholder="e.g. 1500000"
-                />
+              <input
+                type="text"
+                required
+                value={amount}
+                onChange={(e) => setAmount(formatNumberInput(e.target.value))}
+                className="w-full px-3 py-2 text-xs border rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700 font-mono"
+                placeholder="e.g. 1.500.000"
+              />
               )}
             </div>
 
@@ -464,12 +465,12 @@ export const OtherExpenses: React.FC<OtherExpensesProps> = ({
                     <span>{lang === 'id' ? 'Input keuangan dikunci untuk Mandor.' : 'Inputs restricted under Site Foreman.'}</span>
                   </div>
                 ) : (
-                  <input
-                    type="number"
-                    value={editingExpense.amount === 0 ? '' : editingExpense.amount}
-                    onChange={(e) => setEditingExpense({ ...editingExpense, amount: Number(e.target.value) })}
-                    className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl"
-                  />
+                <input
+                  type="text"
+                  value={formatNumberInput(editingExpense.amount)}
+                  onChange={(e) => setEditingExpense({ ...editingExpense, amount: parseFormattedNumber(e.target.value) })}
+                  className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl"
+                />
                 )}
               </div>
 

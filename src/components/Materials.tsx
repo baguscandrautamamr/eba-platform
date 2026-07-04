@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Project, MaterialTransaction, Language, UserRole } from '../types';
 import { Plus, Search, Filter, Lock, ArrowDownCircle, ArrowUpCircle, Edit2, Trash2 } from 'lucide-react';
+import { formatNumberInput, parseFormattedNumber } from '../utils/currency';
 
 interface MaterialsProps {
   projects: Project[];
@@ -46,7 +47,7 @@ export const Materials: React.FC<MaterialsProps> = ({
   const [itemName, setItemName] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [unit, setUnit] = useState('Roll');
-  const [price, setPrice] = useState(0);
+  const [price, setPrice] = useState('');
   const [note, setNote] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -61,13 +62,13 @@ export const Materials: React.FC<MaterialsProps> = ({
       itemName,
       quantity: Number(quantity),
       unit,
-      pricePerUnit: Number(price),
+      pricePerUnit: parseFormattedNumber(price),
       note
     });
 
     setItemName('');
     setQuantity(1);
-    setPrice(0);
+    setPrice('');
     setNote('');
     setShowAdd(false);
   };
@@ -216,17 +217,17 @@ export const Materials: React.FC<MaterialsProps> = ({
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">{lang === 'id' ? 'Harga Satuan (IDR)' : 'Price per Unit (IDR)'}</label>
                     <input
-                      type="number"
-                      value={price === 0 ? '' : price}
-                      onChange={(e) => setPrice(Number(e.target.value))}
+                      type="text"
+                      value={price}
+                      onChange={(e) => setPrice(formatNumberInput(e.target.value))}
                       className="w-full px-3 py-2 text-xs border rounded-xl bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
-                      placeholder="e.g. 850000"
+                      placeholder="e.g. 850.000"
                     />
                   </div>
                   <div className="flex flex-col justify-end">
                     <span className="text-[9px] text-gray-400 font-bold uppercase">{lang === 'id' ? 'Estimasi Total Pengeluaran' : 'Estimated Total Cost'}</span>
                     <span className="text-sm font-bold font-mono text-gray-900 dark:text-white mt-1">
-                      {formatRupiah(quantity * price)}
+                      {formatRupiah(quantity * parseFormattedNumber(price))}
                     </span>
                   </div>
                 </div>
@@ -596,9 +597,9 @@ export const Materials: React.FC<MaterialsProps> = ({
                 <div className="space-y-1.5 sm:col-span-2">
                   <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">{lang === 'id' ? 'Harga Satuan (IDR)' : 'Price per Unit (IDR)'}</label>
                   <input
-                    type="number"
-                    value={editingMaterial.pricePerUnit === 0 ? '' : editingMaterial.pricePerUnit}
-                    onChange={(e) => setEditingMaterial({ ...editingMaterial, pricePerUnit: Number(e.target.value) })}
+                    type="text"
+                    value={formatNumberInput(editingMaterial.pricePerUnit)}
+                    onChange={(e) => setEditingMaterial({ ...editingMaterial, pricePerUnit: parseFormattedNumber(e.target.value) })}
                     className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl"
                   />
                 </div>

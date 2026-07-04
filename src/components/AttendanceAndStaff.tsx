@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Employee, Attendance, Kasbon, Overtime, Language, UserRole } from '../types';
 import { Plus, Users, Calendar, Clock, DollarSign, FileText, CheckCircle, Lock, Printer, Share2, Search, Edit2, Trash2 } from 'lucide-react';
+import { formatNumberInput, parseFormattedNumber } from '../utils/currency';
 
 interface AttendanceAndStaffProps {
   employees: Employee[];
@@ -76,7 +77,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const [showAddEmp, setShowAddEmp] = useState(false);
   const [empName, setEmpName] = useState('');
   const [empRole, setEmpRole] = useState('Tukang Listrik (ME)');
-  const [empWage, setEmpWage] = useState(150000);
+  const [empWage, setEmpWage] = useState('150.000');
 
   // Attendance Form
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
@@ -89,13 +90,13 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
 
   // New Kasbon Form
   const [kasEmpId, setKasEmpId] = useState(employees[0]?.id || '');
-  const [kasAmt, setKasAmt] = useState(0);
+  const [kasAmt, setKasAmt] = useState<string | number>('');
   const [kasNote, setKasNote] = useState('');
 
   // New Overtime Form
   const [ovEmpId, setOvEmpId] = useState(employees[0]?.id || '');
   const [ovHours, setOvHours] = useState(2);
-  const [ovRate, setOvRate] = useState(25000);
+  const [ovRate, setOvRate] = useState('25.000');
   const [ovNote, setOvNote] = useState('');
 
   // Payroll Slip Generator state
@@ -106,9 +107,9 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const handleAddEmployeeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!empName) return;
-    onAddEmployee({ name: empName, role: empRole, dailySalary: Number(empWage) });
+    onAddEmployee({ name: empName, role: empRole, dailySalary: parseFormattedNumber(empWage) });
     setEmpName('');
-    setEmpWage(150000);
+    setEmpWage('150.000');
     setShowAddEmp(false);
   };
 
@@ -182,10 +183,10 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
       date: new Date().toISOString().split('T')[0],
       employeeId: kasEmpId,
       employeeName: employees.find(e => e.id === kasEmpId)?.name || '',
-      amount: Number(kasAmt),
+      amount: parseFormattedNumber(String(kasAmt)),
       note: kasNote
     });
-    setKasAmt(0);
+    setKasAmt('');
     setKasNote('');
     alert('Kasbon berhasil dicatat!');
   };
@@ -198,10 +199,11 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
       employeeId: ovEmpId,
       employeeName: employees.find(e => e.id === ovEmpId)?.name || '',
       hours: Number(ovHours),
-      hourlyRate: Number(ovRate),
+      hourlyRate: parseFormattedNumber(ovRate),
       note: ovNote
     });
     setOvHours(2);
+    setOvRate('25.000');
     setOvNote('');
     alert('Lembur berhasil dicatat!');
   };
@@ -628,10 +630,10 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                   <div className="space-y-1">
                     <label className="text-[9px] font-bold text-gray-400 uppercase">{lang === 'id' ? 'Tarif / Jam' : 'Hourly Rate'}</label>
                     <input
-                      type="number"
+                      type="text"
                       required
                       value={ovRate}
-                      onChange={(e) => setOvRate(Number(e.target.value))}
+                      onChange={(e) => setOvRate(formatNumberInput(e.target.value))}
                       className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
                     />
                   </div>
@@ -772,10 +774,10 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
               <div className="space-y-1">
                 <label className="text-[9px] font-bold text-gray-400 uppercase">Gaji Harian (IDR)</label>
                 <input
-                  type="number"
+                  type="text"
                   required
-                  value={empWage === 0 ? '' : empWage}
-                  onChange={(e) => setEmpWage(Number(e.target.value))}
+                  value={empWage}
+                  onChange={(e) => setEmpWage(formatNumberInput(e.target.value))}
                   className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
                 />
               </div>
@@ -880,12 +882,12 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
               <div className="space-y-1">
                 <label className="text-[9px] font-bold text-gray-400 uppercase">Jumlah Kasbon (IDR)</label>
                 <input
-                  type="number"
+                  type="text"
                   required
-                  value={kasAmt === 0 ? '' : kasAmt}
-                  onChange={(e) => setKasAmt(Number(e.target.value))}
+                  value={kasAmt}
+                  onChange={(e) => setKasAmt(formatNumberInput(e.target.value))}
                   className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
-                  placeholder="e.g. 50000"
+                  placeholder="e.g. 50.000"
                 />
               </div>
 
@@ -1127,10 +1129,10 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Gaji Harian (IDR)</label>
                 <input
-                  type="number"
+                  type="text"
                   required
-                  value={editingEmployee.dailySalary === 0 ? '' : editingEmployee.dailySalary}
-                  onChange={(e) => setEditingEmployee({ ...editingEmployee, dailySalary: Number(e.target.value) })}
+                  value={formatNumberInput(editingEmployee.dailySalary)}
+                  onChange={(e) => setEditingEmployee({ ...editingEmployee, dailySalary: parseFormattedNumber(e.target.value) })}
                   className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl font-mono"
                 />
               </div>
@@ -1179,10 +1181,10 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Jumlah Kasbon (IDR)</label>
                 <input
-                  type="number"
+                  type="text"
                   required
-                  value={editingKasbon.amount === 0 ? '' : editingKasbon.amount}
-                  onChange={(e) => setEditingKasbon({ ...editingKasbon, amount: Number(e.target.value) })}
+                  value={formatNumberInput(editingKasbon.amount)}
+                  onChange={(e) => setEditingKasbon({ ...editingKasbon, amount: parseFormattedNumber(e.target.value) })}
                   className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl font-mono"
                 />
               </div>
@@ -1255,10 +1257,10 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Tarif / Jam (IDR)</label>
                   <input
-                    type="number"
+                    type="text"
                     required
-                    value={editingOvertime.hourlyRate === 0 ? '' : editingOvertime.hourlyRate}
-                    onChange={(e) => setEditingOvertime({ ...editingOvertime, hourlyRate: Number(e.target.value) })}
+                    value={formatNumberInput(editingOvertime.hourlyRate)}
+                    onChange={(e) => setEditingOvertime({ ...editingOvertime, hourlyRate: parseFormattedNumber(e.target.value) })}
                     className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl font-mono"
                   />
                 </div>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Project, Invoice, Language, UserRole } from '../types';
 import { translations } from '../utils/lang';
 import { Plus, Eye, Check, ShieldAlert, Lock, Calendar, DollarSign, ListTodo, Activity, Edit2, Trash2 } from 'lucide-react';
+import { formatNumberInput, parseFormattedNumber } from '../utils/currency';
 
 interface ProjectListProps {
   projects: Project[];
@@ -36,14 +37,14 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   
   // New Project Form State
   const [newProjName, setNewProjName] = useState('');
-  const [newProjBudget, setNewProjBudget] = useState(0);
+  const [newProjBudget, setNewProjBudget] = useState('');
   const [newProjStart, setNewProjStart] = useState('2026-07-01');
   const [newProjEnd, setNewProjEnd] = useState('2026-09-30');
 
   // New Invoice Form State
   const [showAddInv, setShowAddInv] = useState(false);
   const [invNum, setInvNum] = useState('');
-  const [invAmt, setInvAmt] = useState(0);
+  const [invAmt, setInvAmt] = useState('');
   const [invDue, setInvDue] = useState('2026-07-15');
   const [invTitle, setInvTitle] = useState('');
 
@@ -108,7 +109,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
     onAddProject({
       name: newProjName,
-      budget: Number(newProjBudget),
+      budget: parseFormattedNumber(newProjBudget),
       startDate: newProjStart,
       endDate: newProjEnd,
       scurvePlan,
@@ -116,7 +117,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     });
 
     setNewProjName('');
-    setNewProjBudget(0);
+    setNewProjBudget('');
     setShowAddProj(false);
   };
 
@@ -126,13 +127,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
     onAddInvoice(activeProj.id, {
       invoiceNumber: invNum,
-      amount: Number(invAmt),
+      amount: parseFormattedNumber(invAmt),
       dueDate: invDue,
       title: invTitle
     });
 
     setInvNum('');
-    setInvAmt(0);
+    setInvAmt('');
     setInvTitle('');
     setShowAddInv(false);
   };
@@ -213,12 +214,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">{t.budget} (IDR)</label>
                 <input
-                  type="number"
+                  type="text"
                   required
                   value={newProjBudget}
-                  onChange={(e) => setNewProjBudget(Number(e.target.value))}
+                  onChange={(e) => setNewProjBudget(formatNumberInput(e.target.value))}
                   className="w-full px-3 py-2 text-xs border rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                  placeholder="e.g. 250000000"
+                  placeholder="e.g. 250.000.000"
                 />
               </div>
 
@@ -449,12 +450,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-gray-400 uppercase">Jumlah (IDR)</label>
                         <input
-                          type="number"
+                          type="text"
                           required
                           value={invAmt}
-                          onChange={(e) => setInvAmt(Number(e.target.value))}
+                          onChange={(e) => setInvAmt(formatNumberInput(e.target.value))}
                           className="w-full p-2 text-xs border rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700 focus:outline-none"
-                          placeholder="e.g. 50000000"
+                          placeholder="e.g. 50.000.000"
                         />
                       </div>
                     </div>
@@ -605,10 +606,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">{lang === 'id' ? 'Jumlah (IDR)' : 'Amount (IDR)'}</label>
                 <input
-                  type="number"
+                  type="text"
                   required
-                  value={editingInvoice.amount}
-                  onChange={(e) => setEditingInvoice({ ...editingInvoice, amount: Number(e.target.value) })}
+                  value={formatNumberInput(editingInvoice.amount)}
+                  onChange={(e) => setEditingInvoice({ ...editingInvoice, amount: parseFormattedNumber(e.target.value) })}
                   className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl"
                 />
               </div>
@@ -683,10 +684,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">{t.budget} (IDR)</label>
                 <input
-                  type="number"
+                  type="text"
                   required
-                  value={editingProject.budget}
-                  onChange={(e) => setEditingProject({ ...editingProject, budget: Number(e.target.value) })}
+                  value={formatNumberInput(editingProject.budget)}
+                  onChange={(e) => setEditingProject({ ...editingProject, budget: parseFormattedNumber(e.target.value) })}
                   className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl"
                 />
               </div>
