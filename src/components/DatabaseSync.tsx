@@ -34,7 +34,8 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
     rawData?: any;
   } | null>(null);
 
-  const [copied, setCopied] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedSetup, setCopiedSetup] = useState(false);
 
   useEffect(() => {
     const url = getGasUrl() || '';
@@ -109,11 +110,24 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
       });
     } catch (err: any) {
       console.error(err);
+      const isFailedToFetch = err.message && (
+        err.message.toLowerCase().includes('failed to fetch') || 
+        err.message.toLowerCase().includes('network') ||
+        err.message.toLowerCase().includes('load failed')
+      );
+      
+      let errorMsg = err.message;
+      if (isFailedToFetch) {
+        errorMsg = lang === 'id'
+          ? 'Gagal Terhubung (Failed to Fetch). Pastikan: 1. URL Web App Apps Script sudah benar. 2. Opsi "Who has access" di setelan penerapan (Deploy) wajib diatur ke "Anyone" (Siapa saja) agar dapat diakses dari aplikasi tanpa login Google. 3. Anda sudah klik "Deploy" -> "New version" jika ada perubahan kode.'
+          : 'Failed to Connect (Failed to Fetch). Ensure: 1. The Apps Script Web App URL is correct. 2. The "Who has access" setting in your deployment MUST be configured to "Anyone" so it can accept public requests. 3. You deployed a "New version" after changing the script code.';
+      }
+
       setStatus({
         type: 'error',
         message: lang === 'id' 
-          ? `Gagal sinkronisasi ke cloud: ${err.message || 'Cek koneksi internet & URL GAS Anda'}` 
-          : `Cloud push failed: ${err.message || 'Check your internet connection & GAS URL'}`
+          ? `Gagal sinkronisasi ke cloud: ${errorMsg}` 
+          : `Cloud push failed: ${errorMsg}`
       });
     } finally {
       setLoading(false);
@@ -171,11 +185,24 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
       }
     } catch (err: any) {
       console.error(err);
+      const isFailedToFetch = err.message && (
+        err.message.toLowerCase().includes('failed to fetch') || 
+        err.message.toLowerCase().includes('network') ||
+        err.message.toLowerCase().includes('load failed')
+      );
+      
+      let errorMsg = err.message;
+      if (isFailedToFetch) {
+        errorMsg = lang === 'id'
+          ? 'Gagal Terhubung (Failed to Fetch). Pastikan: 1. URL Web App Apps Script sudah benar. 2. Opsi "Who has access" di setelan penerapan (Deploy) wajib diatur ke "Anyone" (Siapa saja) agar dapat diakses dari aplikasi tanpa login Google. 3. Anda sudah klik "Deploy" -> "New version" jika ada perubahan kode.'
+          : 'Failed to Connect (Failed to Fetch). Ensure: 1. The Apps Script Web App URL is correct. 2. The "Who has access" setting in your deployment MUST be configured to "Anyone" so it can accept public requests. 3. You deployed a "New version" after changing the script code.';
+      }
+
       setStatus({
         type: 'error',
         message: lang === 'id' 
-          ? `Gagal memeriksa database cloud: ${err.message || 'Periksa koneksi atau URL Apps Script Anda'}` 
-          : `Failed to fetch cloud database: ${err.message || 'Check connection or Apps Script URL'}`
+          ? `Gagal memeriksa database cloud: ${errorMsg}` 
+          : `Failed to fetch cloud database: ${errorMsg}`
       });
     } finally {
       setLoading(false);
@@ -203,7 +230,7 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
     }
   };
 
-  const handleCopyGasCode = () => {
+  const handleCopyCodeGs = () => {
     const code = `function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
@@ -237,7 +264,7 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
       if (data.type === 'get') {
         if (files.hasNext()) {
           dbFile = files.next();
-          var content = dbFile.getAs("MIME_JSON").getDataAsString();
+          var content = dbFile.getBlob().getDataAsString();
           return ContentService.createTextOutput(JSON.stringify({ success: true, found: true, db: JSON.parse(content) }))
             .setMimeType(ContentService.MimeType.JSON);
         } else {
@@ -252,7 +279,18 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
         } else {
           dbFile = folder.createFile(fileName, jsonString, "application/json");
         }
-        return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Database synced successfully' }))
+        
+        // --- GOOGLE SHEETS AUTOMATIC EXPORT ---
+        // This function is declared in setup.gs
+        try {
+          if (typeof exportDatabaseToSheets === 'function') {
+            exportDatabaseToSheets(data.db, folder);
+          }
+        } catch (sheetError) {
+          console.error("Sheet generation error: " + sheetError.toString());
+        }
+        
+        return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Database synced successfully and spreadsheet generated' }))
           .setMimeType(ContentService.MimeType.JSON);
       }
     }
@@ -296,8 +334,106 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
   }
 }`;
     navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleCopySetupGs = () => {
+    const code = `/**
+ * Automatically syncs the entire backup database JSON into structured sheets in Google Sheets.
+ * Place this in a separate file named 'setup.gs' in your Apps Script project.
+ */
+function exportDatabaseToSheets(db, folder) {
+  var ss;
+  var ssFiles = folder.getFilesByName("EBA Contractor Database");
+  if (ssFiles.hasNext()) {
+    ss = SpreadsheetApp.open(ssFiles.next());
+  } else {
+    ss = SpreadsheetApp.create("EBA Contractor Database");
+    var ssFile = DriveApp.getFileById(ss.getId());
+    folder.addFile(ssFile);
+    DriveApp.getRootFolder().removeFile(ssFile);
+  }
+  
+  // Helper function to overwrite or create sheet tabs
+  var updateSheet = function(sheetName, headers, rows) {
+    var sheet = ss.getSheetByName(sheetName);
+    if (sheet) {
+      sheet.clear();
+    } else {
+      sheet = ss.insertSheet(sheetName);
+    }
+    sheet.appendRow(headers);
+    if (rows && rows.length > 0) {
+      sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+    }
+    // Format header row
+    var headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setBackground("#ea580c").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    for (var col = 1; col <= headers.length; col++) {
+      sheet.autoResizeColumn(col);
+    }
+  };
+  
+  // 1. Projects Sheet
+  var projHeaders = ["Project ID", "Name", "Client", "Location", "Budget", "Spent", "Start Date", "End Date", "Status", "Notes"];
+  var projRows = (db.projects || []).map(function(p) {
+    return [p.id, p.name, p.client, p.location, p.budget, p.spent || 0, p.startDate, p.endDate, p.status, p.notes || ""];
+  });
+  updateSheet("Projects", projHeaders, projRows);
+  
+  // 2. Employees Sheet
+  var empHeaders = ["Employee ID", "Name", "Role", "Phone", "Daily Rate", "Status"];
+  var empRows = (db.employees || []).map(function(e) {
+    return [e.id, e.name, e.role, e.phone, e.dailyRate, e.status];
+  });
+  updateSheet("Employees", empHeaders, empRows);
+  
+  // 3. Attendance Sheet
+  var attHeaders = ["Log ID", "Date", "Employee Name", "Role", "Status", "Check In Time", "Check Out Time", "Notes"];
+  var attRows = (db.attendance || []).map(function(a) {
+    return [a.id, a.date, a.employeeName, a.employeeRole || "", a.status, a.checkIn || "", a.checkOut || "", a.notes || ""];
+  });
+  updateSheet("Attendance", attHeaders, attRows);
+  
+  // 4. Materials Sheet
+  var matHeaders = ["Transaction ID", "Project ID", "Date", "Material Name", "Type", "Qty", "Unit", "Price", "Total", "Supplier", "Logged By"];
+  var matRows = (db.materials || []).map(function(m) {
+    return [m.id, m.projectId, m.date, m.name, m.type, m.quantity, m.unit, m.price, m.quantity * m.price, m.supplier || "", m.loggedBy || ""];
+  });
+  updateSheet("Materials", matHeaders, matRows);
+  
+  // 5. Kasbons Sheet
+  var kasHeaders = ["Kasbon ID", "Employee Name", "Date", "Amount", "Status", "Notes"];
+  var kasRows = (db.kasbons || []).map(function(k) {
+    return [k.id, k.employeeName, k.date, k.amount, k.status, k.notes || ""];
+  });
+  updateSheet("Kasbons", kasHeaders, kasRows);
+  
+  // 6. Overtimes Sheet
+  var otHeaders = ["Overtime ID", "Employee Name", "Date", "Hours", "Hourly Rate", "Total Pay", "Notes"];
+  var otRows = (db.overtimes || []).map(function(o) {
+    return [o.id, o.employeeName, o.date, o.hours, o.hourlyRate, o.hours * o.hourlyRate, o.notes || ""];
+  });
+  updateSheet("Overtimes", otHeaders, otRows);
+  
+  // 7. Other Expenses Sheet
+  var expHeaders = ["Expense ID", "Project ID", "Date", "Category", "Amount", "Description", "Logged By"];
+  var expRows = (db.otherExpenses || []).map(function(x) {
+    return [x.id, x.projectId, x.date, x.category, x.amount, x.description, x.loggedBy || ""];
+  });
+  updateSheet("Other Expenses", expHeaders, expRows);
+  
+  // Delete default Sheet1 if exists
+  var defaultSheet = ss.getSheetByName("Sheet1") || ss.getSheetByName("Sheet 1");
+  if (defaultSheet && ss.getSheets().length > 1) {
+    ss.deleteSheet(defaultSheet);
+  }
+}`;
+    navigator.clipboard.writeText(code);
+    setCopiedSetup(true);
+    setTimeout(() => setCopiedSetup(false), 2000);
   };
 
   if (role === 'tamu') {
@@ -468,45 +604,71 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
 
       {/* Apps Script Guide - Only visible to Admin */}
       {role === 'admin' && (
-        <div className="p-4 bg-gray-50 dark:bg-gray-950/20 rounded-2xl border border-gray-150 dark:border-gray-800 space-y-2.5">
+        <div className="p-4 bg-gray-50 dark:bg-gray-950/20 rounded-2xl border border-gray-150 dark:border-gray-800 space-y-3">
           <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700 dark:text-gray-300">
             <HelpCircle size={15} className="text-orange-500" />
-            <span>{lang === 'id' ? 'Bagaimana cara kerjanya?' : 'How does this work?'}</span>
+            <span>{lang === 'id' ? 'Panduan Integrasi Google Apps Script (GAS)' : 'Google Apps Script (GAS) Integration Guide'}</span>
           </div>
           <ul className="text-[11px] text-gray-500 dark:text-gray-400 space-y-1.5 list-disc pl-4 leading-relaxed">
             <li>
               {lang === 'id' 
-                ? 'Sinkronisasi ini menggunakan Google Apps Script yang berjalan langsung di akun Google Drive Anda.' 
-                : 'This sync runs via Google Apps Script deployed directly on your own Google Drive account.'}
+                ? 'Pisahkan kode menjadi dua file di editor Apps Script Anda: code.gs (utama) dan setup.gs (untuk otomatisasi Excel).' 
+                : 'Separate the script into two files in your Apps Script editor: code.gs (main API) and setup.gs (for Excel automation).'}
             </li>
-            <li>
-              {lang === 'id' 
-                ? 'Sepenuhnya GRATIS tanpa biaya database cloud pihak ketiga dan aman karena data disimpan di Drive pribadi Anda.' 
-                : 'Completely FREE without expensive database hosting fees, storing data safely in your own Drive.'}
-            </li>
-            <li>
-              {lang === 'id' 
-                ? 'Jika Anda belum menginstalnya atau ingin memperbarui kode GAS Anda, silakan klik tombol di bawah untuk menyalin kode terbaru.' 
-                : 'If you have not set it up or need to upgrade, copy the required Google Apps Script code below.'}
+            <li className="text-orange-600 dark:text-orange-400 font-semibold">
+              {lang === 'id'
+                ? '⚠️ PENTING: Setiap kali mengubah atau menambah kode, Anda WAJIB membuat Versi Baru! Caranya: Klik "Deploy" -> "Manage deployments" -> klik ikon Pensil (Edit) -> pilih "New version" di bagian Version, lalu klik "Deploy"!'
+                : '⚠️ IMPORTANT: Whenever you modify or add code, you MUST create a New Version! How: Click "Deploy" -> "Manage deployments" -> click Pencil icon (Edit) -> choose "New version" under Version, then click "Deploy"!'}
             </li>
           </ul>
 
-          <button
-            onClick={handleCopyGasCode}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-[11px] font-bold text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-          >
-            {copied ? (
-              <>
-                <Check size={13} className="text-emerald-500" />
-                <span className="text-emerald-600 font-bold">{lang === 'id' ? 'Kode Berhasil Disalin!' : 'Code Copied!'}</span>
-              </>
-            ) : (
-              <>
-                <Copy size={13} />
-                <span>{lang === 'id' ? 'Salin Kode GAS Terbaru' : 'Copy Latest GAS Code'}</span>
-              </>
-            )}
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1.5">
+            {/* COPY CODE.GS BUTTON */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold text-gray-400 uppercase block tracking-wide">
+                1. {lang === 'id' ? 'File Utama' : 'Main File'} (code.gs)
+              </span>
+              <button
+                onClick={handleCopyCodeGs}
+                className="w-full flex items-center justify-center gap-1.5 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-[11px] font-bold text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                {copiedCode ? (
+                  <>
+                    <Check size={13} className="text-emerald-500" />
+                    <span className="text-emerald-600 font-bold">{lang === 'id' ? 'Disalin!' : 'Copied!'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={13} />
+                    <span>{lang === 'id' ? 'Salin code.gs' : 'Copy code.gs'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* COPY SETUP.GS BUTTON */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold text-gray-400 uppercase block tracking-wide">
+                2. {lang === 'id' ? 'File Spreadsheet' : 'Excel File'} (setup.gs)
+              </span>
+              <button
+                onClick={handleCopySetupGs}
+                className="w-full flex items-center justify-center gap-1.5 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-[11px] font-bold text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                {copiedSetup ? (
+                  <>
+                    <Check size={13} className="text-emerald-500" />
+                    <span className="text-emerald-600 font-bold">{lang === 'id' ? 'Disalin!' : 'Copied!'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={13} />
+                    <span>{lang === 'id' ? 'Salin setup.gs' : 'Copy setup.gs'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

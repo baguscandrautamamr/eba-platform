@@ -596,7 +596,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
     setGasInput('');
   };
 
-  const copyGasCodeToClipboard = () => {
+  const copyCodeGsToClipboard = () => {
     const code = `function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
@@ -630,7 +630,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
       if (data.type === 'get') {
         if (files.hasNext()) {
           dbFile = files.next();
-          var content = dbFile.getAs("MIME_JSON").getDataAsString();
+          var content = dbFile.getBlob().getDataAsString();
           return ContentService.createTextOutput(JSON.stringify({ success: true, found: true, db: JSON.parse(content) }))
             .setMimeType(ContentService.MimeType.JSON);
         } else {
@@ -645,14 +645,23 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
         } else {
           dbFile = folder.createFile(fileName, jsonString, "application/json");
         }
-        return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Database synced successfully' }))
+        
+        // --- GOOGLE SHEETS AUTOMATIC EXPORT ---
+        // This function is declared in setup.gs
+        try {
+          if (typeof exportDatabaseToSheets === 'function') {
+            exportDatabaseToSheets(data.db, folder);
+          }
+        } catch (sheetError) {
+          console.error("Sheet generation error: " + sheetError.toString());
+        }
+        
+        return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Database synced successfully and spreadsheet generated' }))
           .setMimeType(ContentService.MimeType.JSON);
       }
     }
     
     var base64Data = data.image;
-    
-    // Handle standard base64 formats with or without MIME headers
     if (base64Data.indexOf(",") > -1) {
       base64Data = base64Data.split(",")[1];
     }
@@ -660,7 +669,6 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
     var decoded = Utilities.base64Decode(base64Data);
     var blob = Utilities.newBlob(decoded, 'image/jpeg', data.filename);
     
-    // Get or create folder
     var folder;
     var folders = DriveApp.getFoldersByName("EBA Progress Photos");
     if (folders.hasNext()) {
@@ -671,8 +679,6 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
     
     var file = folder.createFile(blob);
     file.setDescription("Uploaded from EBA Contractor Platform by " + (data.userRole || "unknown"));
-    
-    // Make file viewable to anyone with the link so it can be seen in the app
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
     var result = {
@@ -694,7 +700,104 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
   }
 }`;
     navigator.clipboard.writeText(code);
-    alert(lang === 'id' ? 'Kode Google Apps Script berhasil disalin ke clipboard!' : 'Google Apps Script code copied to clipboard!');
+    alert(lang === 'id' ? 'Kode code.gs (API Utama) berhasil disalin ke clipboard!' : 'Main code.gs code copied to clipboard!');
+  };
+
+  const copySetupGsToClipboard = () => {
+    const code = `/**
+ * Automatically syncs the entire backup database JSON into structured sheets in Google Sheets.
+ * Place this in a separate file named 'setup.gs' in your Apps Script project.
+ */
+function exportDatabaseToSheets(db, folder) {
+  var ss;
+  var ssFiles = folder.getFilesByName("EBA Contractor Database");
+  if (ssFiles.hasNext()) {
+    ss = SpreadsheetApp.open(ssFiles.next());
+  } else {
+    ss = SpreadsheetApp.create("EBA Contractor Database");
+    var ssFile = DriveApp.getFileById(ss.getId());
+    folder.addFile(ssFile);
+    DriveApp.getRootFolder().removeFile(ssFile);
+  }
+  
+  // Helper function to overwrite or create sheet tabs
+  var updateSheet = function(sheetName, headers, rows) {
+    var sheet = ss.getSheetByName(sheetName);
+    if (sheet) {
+      sheet.clear();
+    } else {
+      sheet = ss.insertSheet(sheetName);
+    }
+    sheet.appendRow(headers);
+    if (rows && rows.length > 0) {
+      sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+    }
+    // Format header row
+    var headerRange = sheet.getRange(1, 1, 1, headers.length);
+    headerRange.setBackground("#ea580c").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    for (var col = 1; col <= headers.length; col++) {
+      sheet.autoResizeColumn(col);
+    }
+  };
+  
+  // 1. Projects Sheet
+  var projHeaders = ["Project ID", "Name", "Client", "Location", "Budget", "Spent", "Start Date", "End Date", "Status", "Notes"];
+  var projRows = (db.projects || []).map(function(p) {
+    return [p.id, p.name, p.client, p.location, p.budget, p.spent || 0, p.startDate, p.endDate, p.status, p.notes || ""];
+  });
+  updateSheet("Projects", projHeaders, projRows);
+  
+  // 2. Employees Sheet
+  var empHeaders = ["Employee ID", "Name", "Role", "Phone", "Daily Rate", "Status"];
+  var empRows = (db.employees || []).map(function(e) {
+    return [e.id, e.name, e.role, e.phone, e.dailyRate, e.status];
+  });
+  updateSheet("Employees", empHeaders, empRows);
+  
+  // 3. Attendance Sheet
+  var attHeaders = ["Log ID", "Date", "Employee Name", "Role", "Status", "Check In Time", "Check Out Time", "Notes"];
+  var attRows = (db.attendance || []).map(function(a) {
+    return [a.id, a.date, a.employeeName, a.employeeRole || "", a.status, a.checkIn || "", a.checkOut || "", a.notes || ""];
+  });
+  updateSheet("Attendance", attHeaders, attRows);
+  
+  // 4. Materials Sheet
+  var matHeaders = ["Transaction ID", "Project ID", "Date", "Material Name", "Type", "Qty", "Unit", "Price", "Total", "Supplier", "Logged By"];
+  var matRows = (db.materials || []).map(function(m) {
+    return [m.id, m.projectId, m.date, m.name, m.type, m.quantity, m.unit, m.price, m.quantity * m.price, m.supplier || "", m.loggedBy || ""];
+  });
+  updateSheet("Materials", matHeaders, matRows);
+  
+  // 5. Kasbons Sheet
+  var kasHeaders = ["Kasbon ID", "Employee Name", "Date", "Amount", "Status", "Notes"];
+  var kasRows = (db.kasbons || []).map(function(k) {
+    return [k.id, k.employeeName, k.date, k.amount, k.status, k.notes || ""];
+  });
+  updateSheet("Kasbons", kasHeaders, kasRows);
+  
+  // 6. Overtimes Sheet
+  var otHeaders = ["Overtime ID", "Employee Name", "Date", "Hours", "Hourly Rate", "Total Pay", "Notes"];
+  var otRows = (db.overtimes || []).map(function(o) {
+    return [o.id, o.employeeName, o.date, o.hours, o.hourlyRate, o.hours * o.hourlyRate, o.notes || ""];
+  });
+  updateSheet("Overtimes", otHeaders, otRows);
+  
+  // 7. Other Expenses Sheet
+  var expHeaders = ["Expense ID", "Project ID", "Date", "Category", "Amount", "Description", "Logged By"];
+  var expRows = (db.otherExpenses || []).map(function(x) {
+    return [x.id, x.projectId, x.date, x.category, x.amount, x.description, x.loggedBy || ""];
+  });
+  updateSheet("Other Expenses", expHeaders, expRows);
+  
+  // Delete default Sheet1 if exists
+  var defaultSheet = ss.getSheetByName("Sheet1") || ss.getSheetByName("Sheet 1");
+  if (defaultSheet && ss.getSheets().length > 1) {
+    ss.deleteSheet(defaultSheet);
+  }
+}`;
+    navigator.clipboard.writeText(code);
+    alert(lang === 'id' ? 'Kode setup.gs (Sinkronisasi Excel) berhasil disalin ke clipboard!' : 'setup.gs (Excel automation) code copied to clipboard!');
   };
 
   const handleConnectGD = async () => {
@@ -825,17 +928,30 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
                           {lang === 'id' ? ' lalu login dengan akun Google Admin Anda.' : ' and log in with your Google Admin account.'}
                         </li>
                         <li>{lang === 'id' ? 'Klik tombol "New Project" di kiri atas.' : 'Click the "New Project" button in the top left.'}</li>
-                        <li>{lang === 'id' ? 'Hapus semua kode default, lalu klik tombol di bawah ini untuk menyalin kode integrasi:' : 'Delete all default code, then click the button below to copy the integration code:'}</li>
+                        <li>
+                          {lang === 'id' 
+                            ? 'Buat dua file terpisah di dalam project Apps Script Anda: satu bernama "code.gs" dan satu bernama "setup.gs" (klik tanda + di samping "Files" -> pilih "Script" untuk menambah file baru).' 
+                            : 'Create two separate files inside your Apps Script project: one named "code.gs" and one named "setup.gs" (click the + sign next to "Files" -> select "Script" to add a new file).'}
+                        </li>
+                        <li>{lang === 'id' ? 'Hapus semua isi bawaan dari masing-masing file, kemudian salin kode integrasi masing-masing di bawah ini:' : 'Delete all default code from each file, then copy their respective integration code below:'}</li>
                       </ol>
 
-                      <div className="my-2.5 flex justify-start">
+                      <div className="my-3 flex flex-wrap gap-2.5">
                         <button
                           type="button"
-                          onClick={copyGasCodeToClipboard}
-                          className="px-3.5 py-1.5 bg-orange-650 hover:bg-orange-750 text-white font-bold rounded-lg flex items-center gap-1.5 transition-all text-xs cursor-pointer shadow-sm"
+                          onClick={copyCodeGsToClipboard}
+                          className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg flex items-center gap-1.5 transition-all text-[11px] cursor-pointer shadow-sm"
                         >
                           <Link size={12} />
-                          <span>{lang === 'id' ? 'Salin Kode Google Apps Script' : 'Copy Google Apps Script Code'}</span>
+                          <span>{lang === 'id' ? '1. Salin code.gs (API Utama)' : '1. Copy code.gs (Main API)'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={copySetupGsToClipboard}
+                          className="px-3 py-1.5 bg-gray-700 hover:bg-gray-800 text-white font-bold rounded-lg flex items-center gap-1.5 transition-all text-[11px] cursor-pointer shadow-sm"
+                        >
+                          <Link size={12} />
+                          <span>{lang === 'id' ? '2. Salin setup.gs (Otomatisasi Excel)' : '2. Copy setup.gs (Excel Automation)'}</span>
                         </button>
                       </div>
 
