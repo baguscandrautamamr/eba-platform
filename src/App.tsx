@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Project, 
   Invoice,
@@ -52,7 +52,19 @@ import {
   MoreHorizontal,
   X
 } from 'lucide-react';
-import { registerAutoSync, unregisterAutoSync, triggerAutoSync } from './utils/autoSync';
+import { 
+  fetchAllData, cacheToLocal, loadFromCache,
+  apiCreateProject, apiUpdateProject, apiDeleteProject,
+  apiCreateInvoice, apiUpdateInvoice, apiDeleteInvoice, apiUpdateScurve,
+  apiCreateEmployee, apiUpdateEmployee, apiDeleteEmployee,
+  apiCreateMaterial, apiUpdateMaterial, apiDeleteMaterial,
+  apiReplaceAttendanceForDate,
+  apiCreateKasbon, apiUpdateKasbon, apiDeleteKasbon,
+  apiCreateOvertime, apiUpdateOvertime, apiDeleteOvertime,
+  apiCreateExpense, apiUpdateExpense, apiDeleteExpense,
+  apiCreatePhoto, apiUpdatePhoto, apiDeletePhoto, apiDeletePhotos
+} from './utils/sheetsApi';
+import { getGasUrl } from './utils/googleDrive';
 
 export default function App() {
   // System State
@@ -88,9 +100,9 @@ export default function App() {
   // Offline Sync Queue state
   const [offlineQueue, setOfflineQueue] = useState<UploadQueueItem[]>([]);
 
-  // Auto-Sync Status
-  const [autoSyncStatus, setAutoSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
-  const [autoSyncMessage, setAutoSyncMessage] = useState<string>('');
+  // Cloud sync state
+  const [isLoading, setIsLoading] = useState(true);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const t = translations[lang] || translations['id'];
 
@@ -116,59 +128,75 @@ export default function App() {
     }
   }, [role, activeTab]);
 
-  // Load and save state simulated encryption
+  // Load data: Cloud first (Google Sheets), fallback to localStorage cache
   useEffect(() => {
-    const savedProjects = localStorage.getItem('EBA_PROJECTS');
-    const savedMaterials = localStorage.getItem('EBA_MATERIALS');
-    const savedEmployees = localStorage.getItem('EBA_EMPLOYEES');
-    const savedAttendance = localStorage.getItem('EBA_ATTENDANCE');
-    const savedKasbons = localStorage.getItem('EBA_KASBONS');
-    const savedOvertimes = localStorage.getItem('EBA_OVERTIMES');
-    const savedExpenses = localStorage.getItem('EBA_EXPENSES');
-    const savedPhotos = localStorage.getItem('EBA_PHOTOS');
+    const loadData = async () => {
+      setIsLoading(true);
+      setSyncError(null);
 
-    if (savedProjects) setProjects(JSON.parse(savedProjects));
-    if (savedMaterials) setMaterials(JSON.parse(savedMaterials));
-    if (savedEmployees) setEmployees(JSON.parse(savedEmployees));
-    if (savedAttendance) setAttendance(JSON.parse(savedAttendance));
-    if (savedKasbons) setKasbons(JSON.parse(savedKasbons));
-    if (savedOvertimes) setOvertimes(JSON.parse(savedOvertimes));
-    if (savedExpenses) setOtherExpenses(JSON.parse(savedExpenses));
-    if (savedPhotos) setPhotos(JSON.parse(savedPhotos));
-  }, []);
+      const gasUrl = getGasUrl();
+      
+      // Try cloud first if GAS URL is configured
+      if (gasUrl && navigator.onLine) {
+        try {
+          const cloudData = await fetchAllData();
+          setProjects(cloudData.projects);
+          setMaterials(cloudData.materials);
+          setEmployees(cloudData.employees);
+          setAttendance(cloudData.attendance);
+          setKasbons(cloudData.kasbons);
+          setOvertimes(cloudData.overtimes);
+          setOtherExpenses(cloudData.otherExpenses);
+          setPhotos(cloudData.photos);
 
-  // ============================================================
-  // AUTO-SYNC: Register data getter untuk auto-sync ke GAS
-  // ============================================================
-  // Gunakan ref agar dataGetter selalu punya akses ke state terbaru
-  const latestStateRef = useRef({ projects, materials, employees, attendance, kasbons, overtimes, otherExpenses, photos });
-  useEffect(() => {
-    latestStateRef.current = { projects, materials, employees, attendance, kasbons, overtimes, otherExpenses, photos };
-  }, [projects, materials, employees, attendance, kasbons, overtimes, otherExpenses, photos]);
+          // Cache to localStorage
+          cacheToLocal('EBA_PROJECTS', cloudData.projects);
+          cacheToLocal('EBA_MATERIALS', cloudData.materials);
+          cacheToLocal('EBA_EMPLOYEES', cloudData.employees);
+          cacheToLocal('EBA_ATTENDANCE', cloudData.attendance);
+          cacheToLocal('EBA_KASBONS', cloudData.kasbons);
+          cacheToLocal('EBA_OVERTIMES', cloudData.overtimes);
+          cacheToLocal('EBA_EXPENSES', cloudData.otherExpenses);
+          cacheToLocal('EBA_PHOTOS', cloudData.photos);
 
-  useEffect(() => {
-    registerAutoSync(
-      () => latestStateRef.current,
-      (status, message) => {
-        setAutoSyncStatus(status);
-        setAutoSyncMessage(message || '');
+          setIsLoading(false);
+          return; // Success - no need for fallback
+        } catch (err: any) {
+          console.warn('[Cloud] Fetch gagal, pakai cache:', err.message);
+          setSyncError(err.message);
+        }
       }
-    );
-    return () => unregisterAutoSync();
-  }, []);
 
-  // Keys yang merupakan data inti (perlu auto-sync ke Google Sheets)
-  const DATA_KEYS = ['EBA_PROJECTS', 'EBA_MATERIALS', 'EBA_EMPLOYEES', 'EBA_ATTENDANCE', 'EBA_KASBONS', 'EBA_OVERTIMES', 'EBA_EXPENSES', 'EBA_PHOTOS'];
+      // Fallback: load from localStorage cache
+      const savedProjects = localStorage.getItem('EBA_PROJECTS');
+      const savedMaterials = localStorage.getItem('EBA_MATERIALS');
+      const savedEmployees = localStorage.getItem('EBA_EMPLOYEES');
+      const savedAttendance = localStorage.getItem('EBA_ATTENDANCE');
+      const savedKasbons = localStorage.getItem('EBA_KASBONS');
+      const savedOvertimes = localStorage.getItem('EBA_OVERTIMES');
+      const savedExpenses = localStorage.getItem('EBA_EXPENSES');
+      const savedPhotos = localStorage.getItem('EBA_PHOTOS');
+
+      if (savedProjects) setProjects(JSON.parse(savedProjects));
+      if (savedMaterials) setMaterials(JSON.parse(savedMaterials));
+      if (savedEmployees) setEmployees(JSON.parse(savedEmployees));
+      if (savedAttendance) setAttendance(JSON.parse(savedAttendance));
+      if (savedKasbons) setKasbons(JSON.parse(savedKasbons));
+      if (savedOvertimes) setOvertimes(JSON.parse(savedOvertimes));
+      if (savedExpenses) setOtherExpenses(JSON.parse(savedExpenses));
+      if (savedPhotos) setPhotos(JSON.parse(savedPhotos));
+
+      setIsLoading(false);
+    };
+
+    loadData();
+  }, []);
 
   const saveToLocalStorage = (key: string, data: any) => {
     try {
       localStorage.setItem(key, JSON.stringify(data));
     } catch (e) {
       console.warn(`Failed to save to localStorage for key ${key}:`, e);
-    }
-    // Auto-sync ke Google Sheets jika ini data key (bukan theme/lang/role)
-    if (DATA_KEYS.includes(key)) {
-      triggerAutoSync();
     }
   };
 
@@ -206,18 +234,26 @@ export default function App() {
     const updated = [proj, ...projects];
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    const { invoices: _inv, ...projNoInv } = proj;
+    apiCreateProject(projNoInv).catch(e => console.error('[API]', e));
+    // Also create the default invoice
+    if (proj.invoices.length > 0) {
+      apiCreateInvoice({ ...proj.invoices[0], projectId: proj.id }).catch(e => console.error('[API]', e));
+    }
   };
 
   const handleUpdateProject = (updatedProj: Project) => {
     const updated = projects.map(p => p.id === updatedProj.id ? updatedProj : p);
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    apiUpdateProject(updatedProj).catch(e => console.error('[API]', e));
   };
 
   const handleDeleteProject = (projId: string) => {
     const updated = projects.filter(p => p.id !== projId);
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    apiDeleteProject(projId).catch(e => console.error('[API]', e));
   };
 
   const handleUpdateScurve = (projId: string, scurvePlan: number[], scurveActual: number[]) => {
@@ -229,6 +265,7 @@ export default function App() {
     });
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    apiUpdateScurve(projId, scurvePlan, scurveActual).catch(e => console.error('[API]', e));
   };
 
   const handleToggleInvoicePaid = (projId: string, invoiceId: string) => {
@@ -243,6 +280,10 @@ export default function App() {
     });
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    // Sync toggled invoice to Sheets
+    const _proj = updated.find(p => p.id === projId);
+    const _inv = _proj?.invoices.find(i => i.id === invoiceId);
+    if (_inv) apiUpdateInvoice({ ..._inv, projectId: projId }).catch(e => console.error('[API]', e));
   };
 
   const handleAddInvoice = (projId: string, invoice: Omit<Invoice, 'id' | 'isPaid'>) => {
@@ -264,6 +305,7 @@ export default function App() {
     });
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    apiCreateInvoice({ ...inv, projectId: projId }).catch(e => console.error('[API]', e));
   };
 
   const handleUpdateInvoice = (projId: string, updatedInv: Invoice) => {
@@ -278,6 +320,7 @@ export default function App() {
     });
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    apiUpdateInvoice({ ...updatedInv, projectId: projId }).catch(e => console.error('[API]', e));
   };
 
   const handleDeleteInvoice = (projId: string, invoiceId: string) => {
@@ -292,6 +335,7 @@ export default function App() {
     });
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    apiDeleteInvoice(invoiceId).catch(e => console.error('[API]', e));
   };
 
   const handleAddMaterial = (newMat: Omit<MaterialTransaction, 'id' | 'totalPrice'>) => {
@@ -303,6 +347,7 @@ export default function App() {
     const updated = [mat, ...materials];
     setMaterials(updated);
     saveToLocalStorage('EBA_MATERIALS', updated);
+    apiCreateMaterial(mat).catch(e => console.error('[API]', e));
   };
 
   const handleAddPhoto = (newPhoto: Omit<ProgressPhoto, 'id' | 'watermarked'> & { id?: string }) => {
@@ -316,6 +361,7 @@ export default function App() {
       saveToLocalStorage('EBA_PHOTOS', updated);
       return updated;
     });
+    apiCreatePhoto(photo).catch(e => console.error('[API]', e));
   };
 
   const handleAddEmployee = (newEmp: Omit<Employee, 'id'>) => {
@@ -326,18 +372,21 @@ export default function App() {
     const updated = [...employees, emp];
     setEmployees(updated);
     saveToLocalStorage('EBA_EMPLOYEES', updated);
+    apiCreateEmployee(emp).catch(e => console.error('[API]', e));
   };
 
   const handleUpdateEmployee = (updatedEmp: Employee) => {
     const updated = employees.map(emp => emp.id === updatedEmp.id ? updatedEmp : emp);
     setEmployees(updated);
     saveToLocalStorage('EBA_EMPLOYEES', updated);
+    apiUpdateEmployee(updatedEmp).catch(e => console.error('[API]', e));
   };
 
   const handleDeleteEmployee = (empId: string) => {
     const updated = employees.filter(emp => emp.id !== empId);
     setEmployees(updated);
     saveToLocalStorage('EBA_EMPLOYEES', updated);
+    apiDeleteEmployee(empId).catch(e => console.error('[API]', e));
   };
 
   const handleLogAttendance = (records: Omit<Attendance, 'id'>[]) => {
@@ -351,6 +400,7 @@ export default function App() {
     const updated = [...formatted, ...filtered];
     setAttendance(updated);
     saveToLocalStorage('EBA_ATTENDANCE', updated);
+    apiReplaceAttendanceForDate(targetDate, formatted).catch(e => console.error('[API]', e));
   };
 
   const handleAddKasbon = (newKas: Omit<Kasbon, 'id'>) => {
@@ -361,18 +411,21 @@ export default function App() {
     const updated = [kas, ...kasbons];
     setKasbons(updated);
     saveToLocalStorage('EBA_KASBONS', updated);
+    apiCreateKasbon(kas).catch(e => console.error('[API]', e));
   };
 
   const handleUpdateKasbon = (updatedKas: Kasbon) => {
     const updated = kasbons.map(k => k.id === updatedKas.id ? updatedKas : k);
     setKasbons(updated);
     saveToLocalStorage('EBA_KASBONS', updated);
+    apiUpdateKasbon(updatedKas).catch(e => console.error('[API]', e));
   };
 
   const handleDeleteKasbon = (id: string) => {
     const updated = kasbons.filter(k => k.id !== id);
     setKasbons(updated);
     saveToLocalStorage('EBA_KASBONS', updated);
+    apiDeleteKasbon(id).catch(e => console.error('[API]', e));
   };
 
   const handleAddOvertime = (newOv: Omit<Overtime, 'id' | 'totalAmount'>) => {
@@ -384,18 +437,21 @@ export default function App() {
     const updated = [ov, ...overtimes];
     setOvertimes(updated);
     saveToLocalStorage('EBA_OVERTIMES', updated);
+    apiCreateOvertime(ov).catch(e => console.error('[API]', e));
   };
 
   const handleUpdateOvertime = (updatedOv: Overtime) => {
     const updated = overtimes.map(o => o.id === updatedOv.id ? { ...updatedOv, totalAmount: updatedOv.hours * updatedOv.hourlyRate } : o);
     setOvertimes(updated);
     saveToLocalStorage('EBA_OVERTIMES', updated);
+    apiUpdateOvertime(updatedOv).catch(e => console.error('[API]', e));
   };
 
   const handleDeleteOvertime = (id: string) => {
     const updated = overtimes.filter(o => o.id !== id);
     setOvertimes(updated);
     saveToLocalStorage('EBA_OVERTIMES', updated);
+    apiDeleteOvertime(id).catch(e => console.error('[API]', e));
   };
 
   const handleAddExpense = (newExp: Omit<OtherExpense, 'id'>) => {
@@ -406,36 +462,42 @@ export default function App() {
     const updated = [exp, ...otherExpenses];
     setOtherExpenses(updated);
     saveToLocalStorage('EBA_EXPENSES', updated);
+    apiCreateExpense(exp).catch(e => console.error('[API]', e));
   };
 
   const handleUpdateExpense = (updatedExp: OtherExpense) => {
     const updated = otherExpenses.map(e => e.id === updatedExp.id ? updatedExp : e);
     setOtherExpenses(updated);
     saveToLocalStorage('EBA_EXPENSES', updated);
+    apiUpdateExpense(updatedExp).catch(e => console.error('[API]', e));
   };
 
   const handleDeleteExpense = (id: string) => {
     const updated = otherExpenses.filter(e => e.id !== id);
     setOtherExpenses(updated);
     saveToLocalStorage('EBA_EXPENSES', updated);
+    apiDeleteExpense(id).catch(e => console.error('[API]', e));
   };
 
   const handleUpdateMaterial = (updatedMat: MaterialTransaction) => {
     const updated = materials.map(m => m.id === updatedMat.id ? updatedMat : m);
     setMaterials(updated);
     saveToLocalStorage('EBA_MATERIALS', updated);
+    apiUpdateMaterial(updatedMat).catch(e => console.error('[API]', e));
   };
 
   const handleDeleteMaterial = (id: string) => {
     const updated = materials.filter(m => m.id !== id);
     setMaterials(updated);
     saveToLocalStorage('EBA_MATERIALS', updated);
+    apiDeleteMaterial(id).catch(e => console.error('[API]', e));
   };
 
   const handleUpdatePhoto = (updatedPhoto: ProgressPhoto) => {
     const updated = photos.map(p => p.id === updatedPhoto.id ? updatedPhoto : p);
     setPhotos(updated);
     saveToLocalStorage('EBA_PHOTOS', updated);
+    apiUpdatePhoto(updatedPhoto).catch(e => console.error('[API]', e));
   };
 
   const handleDeletePhoto = (idOrIds: string | string[]) => {
@@ -445,6 +507,8 @@ export default function App() {
       saveToLocalStorage('EBA_PHOTOS', updated);
       return updated;
     });
+    const _delIds = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+    apiDeletePhotos(_delIds).catch(e => console.error('[API]', e));
   };
 
   const handleAddOfflineItem = (type: 'photo', payload: any) => {
@@ -579,8 +643,6 @@ export default function App() {
         onSync={handleSyncQueue}
         encryptionKey={encryptionKey}
         setEncryptionKey={setEncryptionKey}
-        autoSyncStatus={autoSyncStatus}
-        autoSyncMessage={autoSyncMessage}
       />
 
       {/* Main Body */}
