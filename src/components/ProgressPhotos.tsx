@@ -7,7 +7,10 @@ import {
   googleSignIn as signInGD, 
   googleSignOut as signOutGD, 
   getOrCreateFolder, 
-  uploadPhotoToDrive 
+  uploadPhotoToDrive,
+  getGasUrl,
+  setGasUrl,
+  uploadPhotoViaGas
 } from '../utils/googleDrive';
 import { User } from 'firebase/auth';
 
@@ -39,10 +42,21 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
   // Google Drive Integration State
   const [gdUser, setGdUser] = useState<User | null>(null);
   const [gdToken, setGdToken] = useState<string | null>(null);
-  const [autoUpload, setAutoUpload] = useState<boolean>(() => localStorage.getItem('EBA_GD_AUTO_UPLOAD') === 'true');
+  const [autoUpload, setAutoUpload] = useState<boolean>(() => {
+    const saved = localStorage.getItem('EBA_GD_AUTO_UPLOAD');
+    return saved === null ? true : saved === 'true'; // Default auto upload to true for smooth automated flow!
+  });
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [backupStatus, setBackupStatus] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  // Google Apps Script state
+  const [gasUrl, setGasUrlState] = useState<string | null>(() => getGasUrl());
+  const [gasInput, setGasInput] = useState(() => getGasUrl() || '');
+  const [activeSyncMethod, setActiveSyncMethod] = useState<'gas' | 'oauth'>(() => {
+    return getGasUrl() ? 'gas' : 'oauth';
+  });
+
 
   // Initialize auth state listener
   useEffect(() => {
@@ -289,7 +303,8 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
   };
 
   const handleBackupAll = async () => {
-    if (!gdToken) {
+    const usingGas = !!gasUrl;
+    if (!usingGas && !gdToken) {
       alert(lang === 'id' ? 'Silakan hubungkan Google Drive terlebih dahulu.' : 'Please connect Google Drive first.');
       return;
     }
@@ -309,8 +324,11 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
     setIsBackingUp(true);
     try {
-      setBackupStatus(lang === 'id' ? 'Menghubungkan ke folder Google Drive...' : 'Connecting to Google Drive folder...');
-      const folderId = await getOrCreateFolder(gdToken);
+      let folderId = '';
+      if (!usingGas && gdToken) {
+        setBackupStatus(lang === 'id' ? 'Menghubungkan ke folder Google Drive...' : 'Connecting to Google Drive folder...');
+        folderId = await getOrCreateFolder(gdToken);
+      }
 
       let successCount = 0;
       for (let i = 0; i < unbackedPhotos.length; i++) {
@@ -321,7 +339,13 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
         const filename = `EBA_${ph.projectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${ph.date}_${ph.time.replace(/:/g, '-')}.jpg`;
 
         try {
-          const uploadRes = await uploadPhotoToDrive(gdToken, b64, filename, folderId);
+          let uploadRes;
+          if (usingGas) {
+            uploadRes = await uploadPhotoViaGas(gasUrl, b64, filename, role);
+          } else {
+            uploadRes = await uploadPhotoToDrive(gdToken!, b64, filename, folderId);
+          }
+
           if (uploadRes && uploadRes.webViewLink) {
             const updatedPhoto: ProgressPhoto = {
               ...ph,
@@ -381,7 +405,9 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
       
       try {
         let folderId = '';
-        if (gdToken && autoUpload) {
+        const usingGas = !!gasUrl;
+
+        if (!usingGas && gdToken && autoUpload) {
           if (role === 'admin') {
             setBackupStatus(lang === 'id' ? 'Menghubungkan ke folder Google Drive...' : 'Connecting to Google Drive folder...');
           }
@@ -401,12 +427,23 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
             driveUrls: []
           };
 
-          if (gdToken && autoUpload && folderId) {
+          const filename = `EBA_${activeProjectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${date}_${time.replace(/:/g, '-')}_${idx + 1}.jpg`;
+
+          if (usingGas && autoUpload) {
+            try {
+              setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${selectedFiles.length} ke Google Drive (Cloud)...` : `Uploading photo ${idx + 1}/${selectedFiles.length} to Google Drive (Cloud)...`);
+              const uploadRes = await uploadPhotoViaGas(gasUrl, fileB64, filename, role);
+              if (uploadRes && uploadRes.webViewLink) {
+                singlePayload.driveUrls = [uploadRes.webViewLink];
+              }
+            } catch (gasErr: any) {
+              console.error('Failed to auto-upload to Google Drive via GAS:', gasErr);
+            }
+          } else if (gdToken && autoUpload && folderId) {
             try {
               if (role === 'admin') {
                 setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${selectedFiles.length} ke Google Drive...` : `Uploading photo ${idx + 1}/${selectedFiles.length} to Google Drive...`);
               }
-              const filename = `EBA_${activeProjectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${date}_${time.replace(/:/g, '-')}_${idx + 1}.jpg`;
               const uploadRes = await uploadPhotoToDrive(gdToken, fileB64, filename, folderId);
               if (uploadRes && uploadRes.webViewLink) {
                 singlePayload.driveUrls = [uploadRes.webViewLink];
@@ -432,6 +469,84 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
         setBackupStatus('');
       }
     }
+  };
+
+  const handleSaveGasUrl = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gasInput.trim()) {
+      alert(lang === 'id' ? 'Silakan masukkan URL Google Apps Script Web App yang valid.' : 'Please enter a valid Google Apps Script Web App URL.');
+      return;
+    }
+    if (!gasInput.trim().startsWith('https://script.google.com/')) {
+      alert(lang === 'id' ? 'URL tidak valid. Harus diawali dengan https://script.google.com/...' : 'Invalid URL. Must start with https://script.google.com/...');
+      return;
+    }
+    setGasUrl(gasInput.trim());
+    setGasUrlState(gasInput.trim());
+    alert(lang === 'id' ? 'Koneksi Google Apps Script berhasil disimpan & diaktifkan!' : 'Google Apps Script connection successfully saved & activated!');
+  };
+
+  const handleDisconnectGas = () => {
+    const confirmed = window.confirm(
+      lang === 'id'
+        ? 'Apakah Anda yakin ingin memutuskan hubungan Google Apps Script?'
+        : 'Are you sure you want to disconnect Google Apps Script?'
+    );
+    if (!confirmed) return;
+    setGasUrl(null);
+    setGasUrlState(null);
+    setGasInput('');
+  };
+
+  const copyGasCodeToClipboard = () => {
+    const code = `function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var base64Data = data.image;
+    
+    // Handle standard base64 formats with or without MIME headers
+    if (base64Data.indexOf(",") > -1) {
+      base64Data = base64Data.split(",")[1];
+    }
+    
+    var decoded = Utilities.base64Decode(base64Data);
+    var blob = Utilities.newBlob(decoded, 'image/jpeg', data.filename);
+    
+    // Get or create folder
+    var folder;
+    var folders = DriveApp.getFoldersByName("EBA Progress Photos");
+    if (folders.hasNext()) {
+      folder = folders.next();
+    } else {
+      folder = DriveApp.createFolder("EBA Progress Photos");
+    }
+    
+    var file = folder.createFile(blob);
+    file.setDescription("Uploaded from EBA Contractor Platform by " + (data.userRole || "unknown"));
+    
+    // Make file viewable to anyone with the link so it can be seen in the app
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    var result = {
+      success: true,
+      fileId: file.getId(),
+      webViewLink: file.getUrl()
+    };
+    
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+      
+  } catch (error) {
+    var result = {
+      success: false,
+      error: error.toString()
+    };
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+    navigator.clipboard.writeText(code);
+    alert(lang === 'id' ? 'Kode Google Apps Script berhasil disalin ke clipboard!' : 'Google Apps Script code copied to clipboard!');
   };
 
   const handleConnectGD = async () => {
@@ -479,13 +594,13 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
               </h3>
               <p className="text-xs text-gray-400 dark:text-gray-500 max-w-xl">
                 {lang === 'id' 
-                  ? 'Hubungkan aplikasi ke Google Drive Anda. Setiap foto progress yang diambil oleh Mandor akan di-upload langsung ke folder "EBA Progress Photos" sehingga Admin dapat memantau secara real-time dari perangkat mana pun.' 
-                  : 'Connect the app to your Google Drive. Every progress photo captured by the Mandor will be uploaded directly to the "EBA Progress Photos" folder so the Admin can view them in real-time from any device.'}
+                  ? 'Sinkronisasikan foto progress proyek otomatis ke Google Drive Anda. Kami menyediakan dua metode fleksibel untuk menghubungkan aplikasi Anda.' 
+                  : 'Automatically sync project progress photos to your Google Drive. We offer two flexible methods to connect your application.'}
               </p>
             </div>
           </div>
 
-          {/* Connection UI */}
+          {/* Connection Status & Loader */}
           {isBackingUp && (
             <div className="p-3.5 bg-blue-50 dark:bg-blue-950/20 text-blue-800 dark:text-blue-300 rounded-xl border border-blue-100 dark:border-blue-900/30 text-xs flex items-center gap-2.5 animate-pulse">
               <Loader2 size={16} className="animate-spin text-blue-600 dark:text-blue-400 shrink-0" />
@@ -493,122 +608,335 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
             </div>
           )}
 
-          {!gdUser || !gdToken ? (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-750">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-gray-500">
-                  <CloudOff size={20} />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-gray-700 dark:text-gray-200">
-                    {lang === 'id' ? 'Belum Terhubung' : 'Not Connected'}
-                  </p>
-                  <p className="text-[11px] text-gray-400">
-                    {lang === 'id' ? 'Hubungkan akun Google untuk mulai membackup foto progress.' : 'Link your Google account to start backing up progress photos.'}
-                  </p>
-                </div>
-              </div>
+          {/* Tab Buttons to select Sync Method */}
+          <div className="flex border-b border-gray-100 dark:border-gray-700/50">
+            <button
+              type="button"
+              onClick={() => setActiveSyncMethod('gas')}
+              className={`px-4 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                activeSyncMethod === 'gas'
+                  ? 'border-orange-500 text-orange-600 dark:text-orange-400'
+                  : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-600'
+              }`}
+            >
+              {lang === 'id' ? '1. Otomatis via Google Apps Script (Sangat Disarankan)' : '1. Automatic via Google Apps Script (Highly Recommended)'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSyncMethod('oauth')}
+              className={`px-4 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+                activeSyncMethod === 'oauth'
+                  ? 'border-orange-500 text-orange-600 dark:text-orange-400'
+                  : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-600'
+              }`}
+            >
+              {lang === 'id' ? '2. Google Login (Firebase Auth)' : '2. Google Login (Firebase Auth)'}
+            </button>
+          </div>
 
-              <button 
-                type="button"
-                disabled={isLoggingIn}
-                onClick={handleConnectGD}
-                className="gsi-material-button self-start sm:self-auto cursor-pointer"
-                style={{ margin: 0, padding: 0 }}
-              >
-                <div className="gsi-material-button-state"></div>
-                <div className="gsi-material-button-content-wrapper">
-                  <div className="gsi-material-button-icon">
-                    <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style={{ display: 'block' }}>
-                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                      <path fill="none" d="M0 0h48v48H0z"></path>
-                    </svg>
-                  </div>
-                  <span className="gsi-material-button-contents text-xs font-semibold px-2 text-gray-700 dark:text-gray-300">
-                    {isLoggingIn ? (lang === 'id' ? 'Menghubungkan...' : 'Connecting...') : (lang === 'id' ? 'Hubungkan Google Drive' : 'Connect Google Drive')}
-                  </span>
-                </div>
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4 p-4 bg-emerald-50/20 dark:bg-emerald-950/10 rounded-xl border border-emerald-100/50 dark:border-emerald-900/25">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle size={20} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-xs font-bold text-gray-800 dark:text-gray-200">
-                        {lang === 'id' ? 'Terhubung ke Google Drive' : 'Connected to Google Drive'}
-                      </p>
-                      <span className="px-1.5 py-0.5 text-[8px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/45 dark:text-emerald-400 rounded uppercase">LIVE</span>
+          {/* METHOD 1: GOOGLE APPS SCRIPT (GAS) PANEL */}
+          {activeSyncMethod === 'gas' && (
+            <div className="space-y-4 pt-2">
+              {!gasUrl ? (
+                <div className="space-y-4">
+                  <div className="flex flex-col md:flex-row items-start justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-750">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-gray-500 shrink-0 mt-0.5">
+                        <CloudOff size={20} />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-bold text-gray-700 dark:text-gray-200">
+                          {lang === 'id' ? 'Google Apps Script Belum Dikonfigurasi' : 'Google Apps Script Not Configured'}
+                        </p>
+                        <p className="text-[11px] text-gray-400 max-w-lg leading-relaxed">
+                          {lang === 'id' 
+                            ? 'Gunakan metode ini agar Mandor dan Tamu dapat langsung mengirim foto ke Drive Anda tanpa perlu login akun Google masing-masing. Gratis, instan, dan permanen.' 
+                            : 'Use this method so that Mandor and Tamu can directly send photos to your Drive without needing their own Google accounts to log in. Free, instant, and permanent.'}
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-[11px] text-gray-500 font-mono">
-                      {gdUser.email}
-                    </p>
+                  </div>
+
+                  {/* Collapsible Instruction Block */}
+                  <details className="group bg-orange-50/15 dark:bg-orange-950/5 border border-orange-150/40 dark:border-orange-900/15 rounded-xl p-4 [&_summary::-webkit-details-marker]:hidden">
+                    <summary className="flex items-center justify-between cursor-pointer focus:outline-none select-none">
+                      <div className="flex items-center gap-2">
+                        <Layers size={14} className="text-orange-500" />
+                        <span className="text-xs font-bold text-orange-700 dark:text-orange-400">
+                          {lang === 'id' ? 'Cara Setup Google Apps Script (Hanya 1 Menit & Gratis)' : 'How to Setup Google Apps Script (1 Minute & 100% Free)'}
+                        </span>
+                      </div>
+                      <span className="text-xs text-orange-400 group-open:rotate-180 transition-transform">▼</span>
+                    </summary>
+
+                    <div className="mt-4 space-y-3.5 text-xs text-gray-650 dark:text-gray-350 border-t border-orange-100/30 dark:border-orange-900/10 pt-3 leading-relaxed">
+                      <ol className="list-decimal list-inside space-y-2.5">
+                        <li>
+                          {lang === 'id' ? 'Buka ' : 'Open '}
+                          <a href="https://script.google.com/" target="_blank" rel="noreferrer" className="text-orange-600 hover:underline font-bold">Google Apps Script</a>
+                          {lang === 'id' ? ' lalu login dengan akun Google Admin Anda.' : ' and log in with your Google Admin account.'}
+                        </li>
+                        <li>{lang === 'id' ? 'Klik tombol "New Project" di kiri atas.' : 'Click the "New Project" button in the top left.'}</li>
+                        <li>{lang === 'id' ? 'Hapus semua kode default, lalu klik tombol di bawah ini untuk menyalin kode integrasi:' : 'Delete all default code, then click the button below to copy the integration code:'}</li>
+                      </ol>
+
+                      <div className="my-2.5 flex justify-start">
+                        <button
+                          type="button"
+                          onClick={copyGasCodeToClipboard}
+                          className="px-3.5 py-1.5 bg-orange-650 hover:bg-orange-750 text-white font-bold rounded-lg flex items-center gap-1.5 transition-all text-xs cursor-pointer shadow-sm"
+                        >
+                          <Link size={12} />
+                          <span>{lang === 'id' ? 'Salin Kode Google Apps Script' : 'Copy Google Apps Script Code'}</span>
+                        </button>
+                      </div>
+
+                      <ol className="list-decimal list-inside space-y-2.5" start={4}>
+                        <li>{lang === 'id' ? 'Paste kode tersebut ke editor script Google.' : 'Paste that code into the Google script editor.'}</li>
+                        <li>
+                          {lang === 'id' 
+                            ? 'Klik tombol "Deploy" di kanan atas > pilih "New Deployment".' 
+                            : 'Click the "Deploy" button on the top right > select "New Deployment".'}
+                        </li>
+                        <li>
+                          {lang === 'id' 
+                            ? 'Klik ikon Gear di samping "Select type" lalu pilih "Web app".' 
+                            : 'Click the Gear icon next to "Select type" and select "Web app".'}
+                        </li>
+                        <li>
+                          {lang === 'id' 
+                            ? 'Atur "Execute as" ke "Me" (akun Google Anda).' 
+                            : 'Set "Execute as" to "Me" (your Google account).'}
+                        </li>
+                        <li>
+                          {lang === 'id' 
+                            ? 'Atur "Who has access" ke "Anyone" (Agar Mandor & Tamu dapat mengunggah foto).' 
+                            : 'Set "Who has access" to "Anyone" (So Mandors & Guests can upload photos).'}
+                        </li>
+                        <li>
+                          {lang === 'id' 
+                            ? 'Klik "Deploy". Izinkan akses keamanan akun Google Anda apabila diminta.' 
+                            : 'Click "Deploy". Authorize your Google Account permissions when requested.'}
+                        </li>
+                        <li>
+                          {lang === 'id' 
+                            ? 'Salin "Web app URL" (biasanya berakhiran /exec), paste ke kolom input di bawah ini, lalu klik Simpan!' 
+                            : 'Copy the "Web app URL" (typically ends in /exec), paste it into the input field below, and click Save!'}
+                        </li>
+                      </ol>
+                    </div>
+                  </details>
+
+                  {/* Input Form */}
+                  <form onSubmit={handleSaveGasUrl} className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="url"
+                      required
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                      value={gasInput}
+                      onChange={(e) => setGasInput(e.target.value)}
+                      className="flex-1 px-3.5 py-2 text-xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-orange-500 text-gray-900 dark:text-white placeholder:text-gray-400 font-mono"
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm shrink-0 cursor-pointer"
+                    >
+                      {lang === 'id' ? 'Simpan & Aktifkan' : 'Save & Activate'}
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <div className="space-y-4 p-4 bg-emerald-50/20 dark:bg-emerald-950/10 rounded-xl border border-emerald-100/50 dark:border-emerald-900/25">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle size={20} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                            {lang === 'id' ? 'Terkoneksi via Google Apps Script' : 'Connected via Google Apps Script'}
+                          </p>
+                          <span className="px-1.5 py-0.5 text-[8px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/45 dark:text-emerald-400 rounded uppercase">AUTOMATIC</span>
+                        </div>
+                        <p className="text-[11px] text-gray-400 truncate max-w-sm sm:max-w-md font-mono mt-0.5">
+                          {gasUrl}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleDisconnectGas}
+                        className="px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/30 text-red-650 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                      >
+                        {lang === 'id' ? 'Putuskan Hubungan' : 'Disconnect'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-emerald-100/50 dark:border-emerald-900/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs">
+                    {/* Auto Upload Toggle */}
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoUpload}
+                        onChange={(e) => {
+                          const nextVal = e.target.checked;
+                          setAutoUpload(nextVal);
+                          localStorage.setItem('EBA_GD_AUTO_UPLOAD', String(nextVal));
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                      />
+                      <span className="text-gray-650 dark:text-gray-350 font-medium select-none">
+                        {lang === 'id' ? 'Auto-upload foto baru ke Google Drive' : 'Auto-upload new photos to Google Drive'}
+                      </span>
+                    </label>
+
+                    {/* Sync past photos */}
+                    {photos.some(p => !p.driveUrls || p.driveUrls.length === 0) && (
+                      <button
+                        type="button"
+                        onClick={handleBackupAll}
+                        disabled={isBackingUp}
+                        className="px-3.5 py-1.5 bg-orange-650 hover:bg-orange-750 text-white font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                      >
+                        <Cloud size={13} />
+                        <span>
+                          {lang === 'id' 
+                            ? `Backup ${photos.filter(p => !p.driveUrls || p.driveUrls.length === 0).length} Foto Lama` 
+                            : `Backup ${photos.filter(p => !p.driveUrls || p.driveUrls.length === 0).length} Past Photos`}
+                        </span>
+                      </button>
+                    )}
                   </div>
                 </div>
+              )}
+            </div>
+          )}
 
-                <div className="flex items-center gap-2">
-                  <a
-                    href="https://drive.google.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-1.5 bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-850 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors"
-                  >
-                    <FolderOpen size={13} className="text-amber-500" />
-                    <span>{lang === 'id' ? 'Buka Google Drive' : 'Open Google Drive'}</span>
-                  </a>
+          {/* METHOD 2: STANDARD GOOGLE AUTH PANEL */}
+          {activeSyncMethod === 'oauth' && (
+            <div className="space-y-4 pt-2">
+              {!gdUser || !gdToken ? (
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-750">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-gray-500 shrink-0">
+                      <CloudOff size={20} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-gray-700 dark:text-gray-200">
+                        {lang === 'id' ? 'Belum Terhubung' : 'Not Connected'}
+                      </p>
+                      <p className="text-[11px] text-gray-400">
+                        {lang === 'id' ? 'Hubungkan akun Google untuk mulai membackup foto progress.' : 'Link your Google account to start backing up progress photos.'}
+                      </p>
+                    </div>
+                  </div>
 
-                  <button
+                  <button 
                     type="button"
-                    onClick={handleDisconnectGD}
-                    className="px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/30 text-red-650 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                    disabled={isLoggingIn}
+                    onClick={handleConnectGD}
+                    className="gsi-material-button self-start sm:self-auto cursor-pointer shrink-0"
+                    style={{ margin: 0, padding: 0 }}
                   >
-                    {lang === 'id' ? 'Putuskan Hubungan' : 'Disconnect'}
+                    <div className="gsi-material-button-state"></div>
+                    <div className="gsi-material-button-content-wrapper">
+                      <div className="gsi-material-button-icon">
+                        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style={{ display: 'block' }}>
+                          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                          <path fill="none" d="M0 0h48v48H0z"></path>
+                        </svg>
+                      </div>
+                      <span className="gsi-material-button-contents text-xs font-semibold px-2 text-gray-700 dark:text-gray-300">
+                        {isLoggingIn ? (lang === 'id' ? 'Menghubungkan...' : 'Connecting...') : (lang === 'id' ? 'Hubungkan Google Drive' : 'Connect Google Drive')}
+                      </span>
+                    </div>
                   </button>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-4 p-4 bg-emerald-50/20 dark:bg-emerald-950/10 rounded-xl border border-emerald-100/50 dark:border-emerald-900/25">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle size={20} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                            {lang === 'id' ? 'Terhubung ke Google Drive' : 'Connected to Google Drive'}
+                          </p>
+                          <span className="px-1.5 py-0.5 text-[8px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/45 dark:text-emerald-400 rounded uppercase">LIVE</span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 font-mono">
+                          {gdUser.email}
+                        </p>
+                      </div>
+                    </div>
 
-              <div className="pt-3 border-t border-emerald-100/50 dark:border-emerald-900/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs">
-                {/* Auto Upload Toggle */}
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoUpload}
-                    onChange={(e) => {
-                      const nextVal = e.target.checked;
-                      setAutoUpload(nextVal);
-                      localStorage.setItem('EBA_GD_AUTO_UPLOAD', String(nextVal));
-                    }}
-                    className="w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
-                  />
-                  <span className="text-gray-650 dark:text-gray-350 font-medium select-none">
-                    {lang === 'id' ? 'Auto-upload foto baru ke Google Drive' : 'Auto-upload new photos to Google Drive'}
-                  </span>
-                </label>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href="https://drive.google.com/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-850 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors"
+                      >
+                        <FolderOpen size={13} className="text-amber-500" />
+                        <span>{lang === 'id' ? 'Buka Google Drive' : 'Open Google Drive'}</span>
+                      </a>
 
-                {/* Sync past photos */}
-                {photos.some(p => !p.driveUrls || p.driveUrls.length === 0) && (
-                  <button
-                    type="button"
-                    onClick={handleBackupAll}
-                    disabled={isBackingUp}
-                    className="px-3.5 py-1.5 bg-orange-650 hover:bg-orange-750 text-white font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
-                  >
-                    <Cloud size={13} />
-                    <span>
-                      {lang === 'id' 
-                        ? `Backup ${photos.filter(p => !p.driveUrls || p.driveUrls.length === 0).length} Foto Lama` 
-                        : `Backup ${photos.filter(p => !p.driveUrls || p.driveUrls.length === 0).length} Past Photos`}
-                    </span>
-                  </button>
-                )}
-              </div>
+                      <button
+                        type="button"
+                        onClick={handleDisconnectGD}
+                        className="px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/30 text-red-650 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                      >
+                        {lang === 'id' ? 'Putuskan Hubungan' : 'Disconnect'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-emerald-100/50 dark:border-emerald-900/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs">
+                    {/* Auto Upload Toggle */}
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoUpload}
+                        onChange={(e) => {
+                          const nextVal = e.target.checked;
+                          setAutoUpload(nextVal);
+                          localStorage.setItem('EBA_GD_AUTO_UPLOAD', String(nextVal));
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                      />
+                      <span className="text-gray-650 dark:text-gray-350 font-medium select-none">
+                        {lang === 'id' ? 'Auto-upload foto baru ke Google Drive' : 'Auto-upload new photos to Google Drive'}
+                      </span>
+                    </label>
+
+                    {/* Sync past photos */}
+                    {photos.some(p => !p.driveUrls || p.driveUrls.length === 0) && (
+                      <button
+                        type="button"
+                        onClick={handleBackupAll}
+                        disabled={isBackingUp}
+                        className="px-3.5 py-1.5 bg-orange-650 hover:bg-orange-750 text-white font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                      >
+                        <Cloud size={13} />
+                        <span>
+                          {lang === 'id' 
+                            ? `Backup ${photos.filter(p => !p.driveUrls || p.driveUrls.length === 0).length} Foto Lama` 
+                            : `Backup ${photos.filter(p => !p.driveUrls || p.driveUrls.length === 0).length} Past Photos`}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -10,7 +10,7 @@ const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/drive.file');
 
 let isSigningIn = false;
-let cachedAccessToken: string | null = typeof window !== 'undefined' ? sessionStorage.getItem('EBA_GD_ACCESS_TOKEN') : null;
+let cachedAccessToken: string | null = typeof window !== 'undefined' ? localStorage.getItem('EBA_GD_ACCESS_TOKEN') : null;
 
 // Initialize auth state listener
 export const initAuth = (
@@ -22,8 +22,8 @@ export const initAuth = (
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else {
-        // Try getting it from sessionStorage first
-        const token = sessionStorage.getItem('EBA_GD_ACCESS_TOKEN');
+        // Try getting it from localStorage first
+        const token = localStorage.getItem('EBA_GD_ACCESS_TOKEN');
         if (token) {
           cachedAccessToken = token;
           if (onAuthSuccess) onAuthSuccess(user, token);
@@ -35,7 +35,7 @@ export const initAuth = (
       }
     } else {
       cachedAccessToken = null;
-      sessionStorage.removeItem('EBA_GD_ACCESS_TOKEN');
+      localStorage.removeItem('EBA_GD_ACCESS_TOKEN');
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -52,7 +52,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
 
     cachedAccessToken = credential.accessToken;
-    sessionStorage.setItem('EBA_GD_ACCESS_TOKEN', cachedAccessToken);
+    localStorage.setItem('EBA_GD_ACCESS_TOKEN', cachedAccessToken);
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Google Drive connection error:', error);
@@ -66,7 +66,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 export const googleSignOut = async () => {
   await signOut(auth);
   cachedAccessToken = null;
-  sessionStorage.removeItem('EBA_GD_ACCESS_TOKEN');
+  localStorage.removeItem('EBA_GD_ACCESS_TOKEN');
 };
 
 // Retrieve token in-memory
@@ -191,3 +191,73 @@ export const uploadPhotoToDrive = async (
 
   return response.json();
 };
+
+// Google Apps Script (GAS) URL Accessors
+export const getGasUrl = (): string | null => {
+  if (typeof window !== 'undefined') {
+    const localGas = localStorage.getItem('EBA_GAS_URL');
+    if (localGas && localGas.trim() !== '') {
+      return localGas.trim();
+    }
+  }
+  // Fallback to static build variable if configured
+  const envGas = (import.meta as any).env?.VITE_GAS_URL;
+  if (envGas && envGas.trim() !== '') {
+    return envGas.trim();
+  }
+  return null;
+};
+
+export const setGasUrl = (url: string | null) => {
+  if (typeof window !== 'undefined') {
+    if (url) {
+      localStorage.setItem('EBA_GAS_URL', url.trim());
+    } else {
+      localStorage.removeItem('EBA_GAS_URL');
+    }
+  }
+};
+
+// Upload photo via Google Apps Script Web App (No authentication needed for the uploader!)
+export const uploadPhotoViaGas = async (
+  gasUrl: string,
+  base64Str: string,
+  filename: string,
+  userRole: string
+): Promise<{ id: string; webViewLink?: string }> => {
+  try {
+    const payload = {
+      image: base64Str,
+      filename: filename,
+      userRole: userRole
+    };
+
+    // We send payload as text/plain to avoid preflight CORS preflight requests 
+    // that sometimes cause issues with Google Apps Script redirect URL handling.
+    const response = await fetch(gasUrl, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`GAS Server responded with status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (data && data.success) {
+      return {
+        id: data.fileId || `gas_${Date.now()}`,
+        webViewLink: data.webViewLink
+      };
+    } else {
+      throw new Error(data?.error || 'Failed to parse response from Apps Script');
+    }
+  } catch (error: any) {
+    console.error('Google Apps Script upload failed:', error);
+    throw new Error(error.message || 'Network error during Google Apps Script upload');
+  }
+};
+
