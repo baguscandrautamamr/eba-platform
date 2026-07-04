@@ -89,6 +89,11 @@ export default function App() {
     }
   }, [theme]);
 
+  // Sync HTML lang attribute with app state to prevent automatic translation prompts
+  useEffect(() => {
+    window.document.documentElement.lang = lang;
+  }, [lang]);
+
   // Handle Guest Role restriction
   // Guest can ONLY see/input progress photos
   useEffect(() => {
