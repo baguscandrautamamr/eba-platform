@@ -55,9 +55,9 @@ import {
 
 export default function App() {
   // System State
-  const [theme, setTheme] = useState<Theme>('light');
-  const [lang, setLang] = useState<Language>('id');
-  const [role, setRole] = useState<UserRole>('guest');
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('EBA_THEME') as Theme) || 'light');
+  const [lang, setLang] = useState<Language>(() => (localStorage.getItem('EBA_LANG') as Language) || 'id');
+  const [role, setRole] = useState<UserRole>(() => (localStorage.getItem('EBA_ROLE') as UserRole) || 'guest');
   const [isOffline, setIsOffline] = useState(false);
   const [encryptionKey, setEncryptionKey] = useState('EBA_SECURE_KEY');
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -124,7 +124,26 @@ export default function App() {
   }, []);
 
   const saveToLocalStorage = (key: string, data: any) => {
-    localStorage.setItem(key, JSON.stringify(data));
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (e) {
+      console.warn(`Failed to save to localStorage for key ${key}:`, e);
+    }
+  };
+
+  const handleSetTheme = (newTheme: Theme) => {
+    setTheme(newTheme);
+    saveToLocalStorage('EBA_THEME', newTheme);
+  };
+
+  const handleSetLang = (newLang: Language) => {
+    setLang(newLang);
+    saveToLocalStorage('EBA_LANG', newLang);
+  };
+
+  const handleSetRole = (newRole: UserRole) => {
+    setRole(newRole);
+    saveToLocalStorage('EBA_ROLE', newRole);
   };
 
   // State Modifiers
@@ -453,11 +472,11 @@ export default function App() {
       {/* Header controls */}
       <Header 
         theme={theme}
-        setTheme={setTheme}
+        setTheme={handleSetTheme}
         lang={lang}
-        setLang={setLang}
+        setLang={handleSetLang}
         role={role}
-        setRole={setRole}
+        setRole={handleSetRole}
         isOffline={isOffline}
         setIsOffline={setIsOffline}
         t={t}
@@ -515,6 +534,8 @@ export default function App() {
           {activeTab === 'projects' && role !== 'guest' && (
             <ProjectList 
               projects={projects}
+              materials={materials}
+              otherExpenses={otherExpenses}
               onAddProject={handleAddProject}
               onUpdateProject={handleUpdateProject}
               onDeleteProject={handleDeleteProject}

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Project, Invoice, Language, UserRole } from '../types';
+import { Project, Invoice, Language, UserRole, MaterialTransaction, OtherExpense } from '../types';
 import { translations } from '../utils/lang';
 import { Plus, Eye, Check, ShieldAlert, Lock, Calendar, DollarSign, ListTodo, Activity, Edit2, Trash2 } from 'lucide-react';
 import { formatNumberInput, parseFormattedNumber } from '../utils/currency';
 
 interface ProjectListProps {
   projects: Project[];
+  materials?: MaterialTransaction[];
+  otherExpenses?: OtherExpense[];
   onAddProject: (proj: Omit<Project, 'id' | 'invoices'>) => void;
   onUpdateProject?: (proj: Project) => void;
   onDeleteProject?: (id: string) => void;
@@ -20,6 +22,8 @@ interface ProjectListProps {
 
 export const ProjectList: React.FC<ProjectListProps> = ({
   projects,
+  materials = [],
+  otherExpenses = [],
   onAddProject,
   onUpdateProject,
   onDeleteProject,
@@ -144,6 +148,16 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       currency: 'IDR',
       maximumFractionDigits: 0
     }).format(val);
+  };
+
+  const getProjectSpentBudget = (projId: string) => {
+    const matSpent = materials
+      .filter(m => m.projectId === projId && m.type === 'masuk')
+      .reduce((acc, m) => acc + m.totalPrice, 0);
+    const expSpent = otherExpenses
+      .filter(e => e.projectId === projId)
+      .reduce((acc, e) => acc + e.amount, 0);
+    return matSpent + expSpent;
   };
 
   // If Mandor role: hide all financial data
@@ -405,8 +419,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                         {lang === 'id' ? 'Anggaran Terpakai' : 'Spent Budget'}
                       </span>
                       <h5 className="text-base font-bold text-gray-900 dark:text-white mt-1">
-                        {/* We will render the dynamic spent or placeholder */}
-                        {formatRupiah(activeProj.budget * 0.45)}
+                        {formatRupiah(getProjectSpentBudget(activeProj.id))}
                       </h5>
                     </div>
                   </div>

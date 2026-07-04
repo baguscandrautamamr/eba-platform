@@ -46,6 +46,7 @@ export interface ProgressPhoto {
   images: string[]; // Base64 strings or URLs
   gpsLocation?: string; // Lat, Lng
   watermarked: boolean;
+  driveUrls?: string[]; // Optional Google Drive web view links
 }
 
 export interface Employee {

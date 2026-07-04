@@ -1,12 +1,20 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Project, ProgressPhoto, Language, UserRole } from '../types';
-import { Camera, Image as ImageIcon, MapPin, Loader2, UploadCloud, CheckCircle, WifiOff, RefreshCw, Layers, Edit2, Trash2, Calendar, Printer, Download } from 'lucide-react';
+import { Camera, Image as ImageIcon, MapPin, Loader2, UploadCloud, CheckCircle, WifiOff, RefreshCw, Layers, Edit2, Trash2, Calendar, Printer, Download, Cloud, HardDrive, CloudOff, FolderOpen, Link } from 'lucide-react';
+import { 
+  initAuth as initGDAuth, 
+  googleSignIn as signInGD, 
+  googleSignOut as signOutGD, 
+  getOrCreateFolder, 
+  uploadPhotoToDrive 
+} from '../utils/googleDrive';
+import { User } from 'firebase/auth';
 
 interface ProgressPhotosProps {
   projects: Project[];
   photos: ProgressPhoto[];
-  onAddPhoto: (photo: Omit<ProgressPhoto, 'id' | 'watermarked'>) => void;
+  onAddPhoto: (photo: Omit<ProgressPhoto, 'id' | 'watermarked' | 'driveUrls'>) => void;
   onUpdatePhoto: (photo: ProgressPhoto) => void;
   onDeletePhoto: (id: string) => void;
   isOffline: boolean;
@@ -28,6 +36,29 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
   lang,
   role
 }) => {
+  // Google Drive Integration State
+  const [gdUser, setGdUser] = useState<User | null>(null);
+  const [gdToken, setGdToken] = useState<string | null>(null);
+  const [autoUpload, setAutoUpload] = useState<boolean>(() => localStorage.getItem('EBA_GD_AUTO_UPLOAD') === 'true');
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [backupStatus, setBackupStatus] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  // Initialize auth state listener
+  useEffect(() => {
+    const unsubscribe = initGDAuth(
+      (user, token) => {
+        setGdUser(user);
+        setGdToken(token);
+      },
+      () => {
+        setGdUser(null);
+        setGdToken(null);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
   // Editing and Deleting state
   const [editingPhoto, setEditingPhoto] = useState<ProgressPhoto | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -172,9 +203,23 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
       img.src = base64Str;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        // Keep size of image
-        canvas.width = img.width || 800;
-        canvas.height = img.height || 600;
+        
+        // Scale down high-resolution images to a maximum dimension of 1024px to keep size extremely small
+        const MAX_DIM = 1024;
+        let width = img.width || 800;
+        let height = img.height || 600;
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
           resolve(base64Str);
@@ -209,7 +254,8 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
           ctx.fillText(`GPS: ${gps}`, 20, canvas.height - 15);
         }
 
-        resolve(canvas.toDataURL('image/jpeg'));
+        // Export as compressed jpeg
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
       };
     });
   };
@@ -242,7 +288,66 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
     setCapturing(false);
   };
 
-  const handleUploadSubmit = (e: React.FormEvent) => {
+  const handleBackupAll = async () => {
+    if (!gdToken) {
+      alert(lang === 'id' ? 'Silakan hubungkan Google Drive terlebih dahulu.' : 'Please connect Google Drive first.');
+      return;
+    }
+
+    const unbackedPhotos = photos.filter(p => !p.driveUrls || p.driveUrls.length === 0);
+    if (unbackedPhotos.length === 0) {
+      alert(lang === 'id' ? 'Semua foto sudah di-backup di Google Drive.' : 'All photos are already backed up to Google Drive.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      lang === 'id' 
+        ? `Apakah Anda yakin ingin mem-backup ${unbackedPhotos.length} foto ke Google Drive?`
+        : `Are you sure you want to back up ${unbackedPhotos.length} photo(s) to Google Drive?`
+    );
+    if (!confirmed) return;
+
+    setIsBackingUp(true);
+    try {
+      setBackupStatus(lang === 'id' ? 'Menghubungkan ke folder Google Drive...' : 'Connecting to Google Drive folder...');
+      const folderId = await getOrCreateFolder(gdToken);
+
+      let successCount = 0;
+      for (let i = 0; i < unbackedPhotos.length; i++) {
+        const ph = unbackedPhotos[i];
+        setBackupStatus(lang === 'id' ? `Mem-backup ${i + 1}/${unbackedPhotos.length}: ${ph.projectName}...` : `Backing up ${i + 1}/${unbackedPhotos.length}: ${ph.projectName}...`);
+
+        const b64 = ph.images[0];
+        const filename = `EBA_${ph.projectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${ph.date}_${ph.time.replace(/:/g, '-')}.jpg`;
+
+        try {
+          const uploadRes = await uploadPhotoToDrive(gdToken, b64, filename, folderId);
+          if (uploadRes && uploadRes.webViewLink) {
+            const updatedPhoto: ProgressPhoto = {
+              ...ph,
+              driveUrls: [uploadRes.webViewLink]
+            };
+            onUpdatePhoto(updatedPhoto);
+            successCount++;
+          }
+        } catch (uploadErr) {
+          console.error(`Failed to back up photo ${ph.id}:`, uploadErr);
+        }
+      }
+
+      alert(lang === 'id' 
+        ? `Berhasil mem-backup ${successCount} foto ke Google Drive!` 
+        : `Successfully backed up ${successCount} photo(s) to Google Drive!`
+      );
+    } catch (err: any) {
+      alert(lang === 'id' ? `Gagal mem-backup: ${err.message}` : `Backup failed: ${err.message}`);
+    } finally {
+      setIsBackingUp(false);
+      setBackupStatus('');
+    }
+  };
+
+  const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedFiles.length === 0) return;
 
@@ -272,27 +377,243 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
       setSelectedFiles([]);
       alert(lang === 'id' ? 'Tersimpan dalam antrean upload offline! Foto akan terkirim setelah online.' : 'Saved in offline upload queue! Photos will sync once online.');
     } else {
-      // Sync each photo immediately as its own separate record
-      selectedFiles.forEach((fileB64, idx) => {
-        const singlePayload = {
-          projectId: selProjId,
-          projectName: activeProjectName,
-          date,
-          time,
-          notes: selectedFiles.length > 1 ? `${notes} (${idx + 1}/${selectedFiles.length})` : notes,
-          images: [fileB64],
-          gpsLocation: includeGps ? activeGps : undefined
-        };
-        onAddPhoto(singlePayload);
-      });
-      setNotes('');
-      setSelectedFiles([]);
+      setIsBackingUp(true);
+      
+      try {
+        let folderId = '';
+        if (gdToken && autoUpload) {
+          if (role === 'admin') {
+            setBackupStatus(lang === 'id' ? 'Menghubungkan ke folder Google Drive...' : 'Connecting to Google Drive folder...');
+          }
+          folderId = await getOrCreateFolder(gdToken);
+        }
+
+        for (let idx = 0; idx < selectedFiles.length; idx++) {
+          const fileB64 = selectedFiles[idx];
+          const singlePayload: any = {
+            projectId: selProjId,
+            projectName: activeProjectName,
+            date,
+            time,
+            notes: selectedFiles.length > 1 ? `${notes} (${idx + 1}/${selectedFiles.length})` : notes,
+            images: [fileB64],
+            gpsLocation: includeGps ? activeGps : undefined,
+            driveUrls: []
+          };
+
+          if (gdToken && autoUpload && folderId) {
+            try {
+              if (role === 'admin') {
+                setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${selectedFiles.length} ke Google Drive...` : `Uploading photo ${idx + 1}/${selectedFiles.length} to Google Drive...`);
+              }
+              const filename = `EBA_${activeProjectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${date}_${time.replace(/:/g, '-')}_${idx + 1}.jpg`;
+              const uploadRes = await uploadPhotoToDrive(gdToken, fileB64, filename, folderId);
+              if (uploadRes && uploadRes.webViewLink) {
+                singlePayload.driveUrls = [uploadRes.webViewLink];
+              }
+            } catch (uploadErr) {
+              console.error('Failed to auto-upload to Google Drive:', uploadErr);
+            }
+          }
+
+          onAddPhoto(singlePayload);
+        }
+
+        setNotes('');
+        setSelectedFiles([]);
+      } catch (err: any) {
+        if (role === 'admin') {
+          alert(lang === 'id' ? `Gagal upload ke Google Drive: ${err.message}` : `Google Drive upload failed: ${err.message}`);
+        } else {
+          console.error('Google Drive background upload error:', err);
+        }
+      } finally {
+        setIsBackingUp(false);
+        setBackupStatus('');
+      }
     }
+  };
+
+  const handleConnectGD = async () => {
+    setIsLoggingIn(true);
+    try {
+      const res = await signInGD();
+      if (res) {
+        setGdUser(res.user);
+        setGdToken(res.accessToken);
+      }
+    } catch (err: any) {
+      alert(lang === 'id' ? `Gagal menghubungkan Google Drive: ${err.message}` : `Failed to connect Google Drive: ${err.message}`);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleDisconnectGD = async () => {
+    const confirmed = window.confirm(
+      lang === 'id'
+        ? 'Apakah Anda yakin ingin memutuskan hubungan Google Drive?'
+        : 'Are you sure you want to disconnect your Google Drive?'
+    );
+    if (!confirmed) return;
+    
+    await signOutGD();
+    setGdUser(null);
+    setGdToken(null);
   };
 
   return (
     <div className="space-y-6" id="progress-photos-tab">
       
+      {/* Google Drive Cloud Backup Card - ONLY visible to Admin */}
+      {role === 'admin' && (
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm space-y-4">
+          <div className="flex items-start justify-between flex-wrap gap-4">
+            <div className="space-y-1">
+              <span className="px-2.5 py-0.5 text-[9px] font-black bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400 rounded-full uppercase tracking-wider flex items-center gap-1.5 w-fit">
+                <Cloud size={10} className="animate-pulse" />
+                <span>Google Drive Integration</span>
+              </span>
+              <h3 className="font-sans font-bold text-sm sm:text-base text-gray-900 dark:text-white mt-1.5">
+                {lang === 'id' ? 'Backup Cloud Google Drive' : 'Google Drive Cloud Sync'}
+              </h3>
+              <p className="text-xs text-gray-400 dark:text-gray-500 max-w-xl">
+                {lang === 'id' 
+                  ? 'Hubungkan aplikasi ke Google Drive Anda. Setiap foto progress yang diambil oleh Mandor akan di-upload langsung ke folder "EBA Progress Photos" sehingga Admin dapat memantau secara real-time dari perangkat mana pun.' 
+                  : 'Connect the app to your Google Drive. Every progress photo captured by the Mandor will be uploaded directly to the "EBA Progress Photos" folder so the Admin can view them in real-time from any device.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Connection UI */}
+          {isBackingUp && (
+            <div className="p-3.5 bg-blue-50 dark:bg-blue-950/20 text-blue-800 dark:text-blue-300 rounded-xl border border-blue-100 dark:border-blue-900/30 text-xs flex items-center gap-2.5 animate-pulse">
+              <Loader2 size={16} className="animate-spin text-blue-600 dark:text-blue-400 shrink-0" />
+              <span className="font-medium font-mono">{backupStatus}</span>
+            </div>
+          )}
+
+          {!gdUser || !gdToken ? (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-750">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-gray-500">
+                  <CloudOff size={20} />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-700 dark:text-gray-200">
+                    {lang === 'id' ? 'Belum Terhubung' : 'Not Connected'}
+                  </p>
+                  <p className="text-[11px] text-gray-400">
+                    {lang === 'id' ? 'Hubungkan akun Google untuk mulai membackup foto progress.' : 'Link your Google account to start backing up progress photos.'}
+                  </p>
+                </div>
+              </div>
+
+              <button 
+                type="button"
+                disabled={isLoggingIn}
+                onClick={handleConnectGD}
+                className="gsi-material-button self-start sm:self-auto cursor-pointer"
+                style={{ margin: 0, padding: 0 }}
+              >
+                <div className="gsi-material-button-state"></div>
+                <div className="gsi-material-button-content-wrapper">
+                  <div className="gsi-material-button-icon">
+                    <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style={{ display: 'block' }}>
+                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                      <path fill="none" d="M0 0h48v48H0z"></path>
+                    </svg>
+                  </div>
+                  <span className="gsi-material-button-contents text-xs font-semibold px-2 text-gray-700 dark:text-gray-300">
+                    {isLoggingIn ? (lang === 'id' ? 'Menghubungkan...' : 'Connecting...') : (lang === 'id' ? 'Hubungkan Google Drive' : 'Connect Google Drive')}
+                  </span>
+                </div>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4 p-4 bg-emerald-50/20 dark:bg-emerald-950/10 rounded-xl border border-emerald-100/50 dark:border-emerald-900/25">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle size={20} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                        {lang === 'id' ? 'Terhubung ke Google Drive' : 'Connected to Google Drive'}
+                      </p>
+                      <span className="px-1.5 py-0.5 text-[8px] font-black bg-emerald-100 text-emerald-800 dark:bg-emerald-900/45 dark:text-emerald-400 rounded uppercase">LIVE</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 font-mono">
+                      {gdUser.email}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <a
+                    href="https://drive.google.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-850 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors"
+                  >
+                    <FolderOpen size={13} className="text-amber-500" />
+                    <span>{lang === 'id' ? 'Buka Google Drive' : 'Open Google Drive'}</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={handleDisconnectGD}
+                    className="px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/30 text-red-650 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                  >
+                    {lang === 'id' ? 'Putuskan Hubungan' : 'Disconnect'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-emerald-100/50 dark:border-emerald-900/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs">
+                {/* Auto Upload Toggle */}
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoUpload}
+                    onChange={(e) => {
+                      const nextVal = e.target.checked;
+                      setAutoUpload(nextVal);
+                      localStorage.setItem('EBA_GD_AUTO_UPLOAD', String(nextVal));
+                    }}
+                    className="w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                  />
+                  <span className="text-gray-650 dark:text-gray-350 font-medium select-none">
+                    {lang === 'id' ? 'Auto-upload foto baru ke Google Drive' : 'Auto-upload new photos to Google Drive'}
+                  </span>
+                </label>
+
+                {/* Sync past photos */}
+                {photos.some(p => !p.driveUrls || p.driveUrls.length === 0) && (
+                  <button
+                    type="button"
+                    onClick={handleBackupAll}
+                    disabled={isBackingUp}
+                    className="px-3.5 py-1.5 bg-orange-650 hover:bg-orange-750 text-white font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                  >
+                    <Cloud size={13} />
+                    <span>
+                      {lang === 'id' 
+                        ? `Backup ${photos.filter(p => !p.driveUrls || p.driveUrls.length === 0).length} Foto Lama` 
+                        : `Backup ${photos.filter(p => !p.driveUrls || p.driveUrls.length === 0).length} Past Photos`}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Upload/Camera form (Accessible by Admin, Mandor, and Guest) */}
       <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm space-y-4">
         <div>
@@ -660,6 +981,14 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
                 <p className="font-mono text-gray-300 mt-0.5">{ph.date}</p>
               </div>
 
+              {/* Google Drive Status Badge */}
+              {role === 'admin' && ph.driveUrls && ph.driveUrls.length > 0 && (
+                <div className="absolute top-1.5 left-1.5 bg-blue-600/95 text-white font-mono text-[8px] font-bold px-1.5 py-0.5 rounded shadow-sm flex items-center gap-1 z-10">
+                  <Cloud size={8} />
+                  <span>Drive</span>
+                </div>
+              )}
+ 
               {/* Verified Badge */}
               <div className="absolute top-1.5 right-1.5 bg-emerald-600 text-white font-mono text-[7px] font-bold px-1.5 py-0.5 rounded shadow-sm">
                 ✓
@@ -723,9 +1052,23 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
               {/* Action buttons */}
               <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-750">
-                <div className="text-[9px] font-bold text-emerald-600 flex items-center gap-1 uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-1 rounded border border-emerald-100 dark:border-emerald-900/20">
-                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
-                  <span>{lang === 'id' ? 'Terverifikasi Cloud' : 'Cloud Synchronized'}</span>
+                <div className="flex items-center gap-2">
+                  <div className="text-[9px] font-bold text-emerald-600 flex items-center gap-1 uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-1 rounded border border-emerald-100 dark:border-emerald-900/20">
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                    <span>{lang === 'id' ? 'Terverifikasi Cloud' : 'Cloud Synchronized'}</span>
+                  </div>
+
+                  {role === 'admin' && activeLightboxPhoto.driveUrls && activeLightboxPhoto.driveUrls.length > 0 && (
+                    <a
+                      href={activeLightboxPhoto.driveUrls[0]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[9px] font-bold text-blue-650 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 flex items-center gap-1 uppercase bg-blue-50 dark:bg-blue-950/20 px-2 py-1 rounded border border-blue-100 dark:border-blue-900/20 transition-colors"
+                    >
+                      <Link size={10} />
+                      <span>Drive Link</span>
+                    </a>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
