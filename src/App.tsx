@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Project, 
   Invoice,
@@ -52,6 +52,7 @@ import {
   MoreHorizontal,
   X
 } from 'lucide-react';
+import { registerAutoSync, unregisterAutoSync, triggerAutoSync } from './utils/autoSync';
 
 export default function App() {
   // System State
@@ -86,6 +87,10 @@ export default function App() {
   
   // Offline Sync Queue state
   const [offlineQueue, setOfflineQueue] = useState<UploadQueueItem[]>([]);
+
+  // Auto-Sync Status
+  const [autoSyncStatus, setAutoSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [autoSyncMessage, setAutoSyncMessage] = useState<string>('');
 
   const t = translations[lang] || translations['id'];
 
@@ -132,11 +137,38 @@ export default function App() {
     if (savedPhotos) setPhotos(JSON.parse(savedPhotos));
   }, []);
 
+  // ============================================================
+  // AUTO-SYNC: Register data getter untuk auto-sync ke GAS
+  // ============================================================
+  // Gunakan ref agar dataGetter selalu punya akses ke state terbaru
+  const latestStateRef = useRef({ projects, materials, employees, attendance, kasbons, overtimes, otherExpenses, photos });
+  useEffect(() => {
+    latestStateRef.current = { projects, materials, employees, attendance, kasbons, overtimes, otherExpenses, photos };
+  }, [projects, materials, employees, attendance, kasbons, overtimes, otherExpenses, photos]);
+
+  useEffect(() => {
+    registerAutoSync(
+      () => latestStateRef.current,
+      (status, message) => {
+        setAutoSyncStatus(status);
+        setAutoSyncMessage(message || '');
+      }
+    );
+    return () => unregisterAutoSync();
+  }, []);
+
+  // Keys yang merupakan data inti (perlu auto-sync ke Google Sheets)
+  const DATA_KEYS = ['EBA_PROJECTS', 'EBA_MATERIALS', 'EBA_EMPLOYEES', 'EBA_ATTENDANCE', 'EBA_KASBONS', 'EBA_OVERTIMES', 'EBA_EXPENSES', 'EBA_PHOTOS'];
+
   const saveToLocalStorage = (key: string, data: any) => {
     try {
       localStorage.setItem(key, JSON.stringify(data));
     } catch (e) {
       console.warn(`Failed to save to localStorage for key ${key}:`, e);
+    }
+    // Auto-sync ke Google Sheets jika ini data key (bukan theme/lang/role)
+    if (DATA_KEYS.includes(key)) {
+      triggerAutoSync();
     }
   };
 
@@ -547,6 +579,8 @@ export default function App() {
         onSync={handleSyncQueue}
         encryptionKey={encryptionKey}
         setEncryptionKey={setEncryptionKey}
+        autoSyncStatus={autoSyncStatus}
+        autoSyncMessage={autoSyncMessage}
       />
 
       {/* Main Body */}
@@ -796,3 +830,4 @@ export default function App() {
     </div>
   );
 }
+
