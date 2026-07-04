@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Project, 
   Invoice,
@@ -52,7 +52,7 @@ import {
   MoreHorizontal,
   X
 } from 'lucide-react';
-import { registerAutoSync, unregisterAutoSync, triggerAutoSync } from './utils/autoSync';
+import * as api from './utils/sheetsApi';
 
 export default function App() {
   // System State
@@ -87,10 +87,6 @@ export default function App() {
   
   // Offline Sync Queue state
   const [offlineQueue, setOfflineQueue] = useState<UploadQueueItem[]>([]);
-
-  // Auto-Sync Status
-  const [autoSyncStatus, setAutoSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
-  const [autoSyncMessage, setAutoSyncMessage] = useState<string>('');
 
   const t = translations[lang] || translations['id'];
 
@@ -137,38 +133,11 @@ export default function App() {
     if (savedPhotos) setPhotos(JSON.parse(savedPhotos));
   }, []);
 
-  // ============================================================
-  // AUTO-SYNC: Register data getter untuk auto-sync ke GAS
-  // ============================================================
-  // Gunakan ref agar dataGetter selalu punya akses ke state terbaru
-  const latestStateRef = useRef({ projects, materials, employees, attendance, kasbons, overtimes, otherExpenses, photos });
-  useEffect(() => {
-    latestStateRef.current = { projects, materials, employees, attendance, kasbons, overtimes, otherExpenses, photos };
-  }, [projects, materials, employees, attendance, kasbons, overtimes, otherExpenses, photos]);
-
-  useEffect(() => {
-    registerAutoSync(
-      () => latestStateRef.current,
-      (status, message) => {
-        setAutoSyncStatus(status);
-        setAutoSyncMessage(message || '');
-      }
-    );
-    return () => unregisterAutoSync();
-  }, []);
-
-  // Keys yang merupakan data inti (perlu auto-sync ke Google Sheets)
-  const DATA_KEYS = ['EBA_PROJECTS', 'EBA_MATERIALS', 'EBA_EMPLOYEES', 'EBA_ATTENDANCE', 'EBA_KASBONS', 'EBA_OVERTIMES', 'EBA_EXPENSES', 'EBA_PHOTOS'];
-
   const saveToLocalStorage = (key: string, data: any) => {
     try {
       localStorage.setItem(key, JSON.stringify(data));
     } catch (e) {
       console.warn(`Failed to save to localStorage for key ${key}:`, e);
-    }
-    // Auto-sync ke Google Sheets jika ini data key (bukan theme/lang/role)
-    if (DATA_KEYS.includes(key)) {
-      triggerAutoSync();
     }
   };
 
@@ -206,18 +175,23 @@ export default function App() {
     const updated = [proj, ...projects];
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    const { invoices: _inv, ...projOnly } = proj;
+    api.apiCreateProject(projOnly).catch(e => console.warn('[Sync]', e));
+    if (proj.invoices?.[0]) api.apiCreateInvoice({ ...proj.invoices[0], projectId: proj.id }).catch(e => console.warn('[Sync]', e));
   };
 
   const handleUpdateProject = (updatedProj: Project) => {
     const updated = projects.map(p => p.id === updatedProj.id ? updatedProj : p);
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    api.apiUpdateProject(updatedProj).catch(e => console.warn('[Sync]', e));
   };
 
   const handleDeleteProject = (projId: string) => {
     const updated = projects.filter(p => p.id !== projId);
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    api.apiDeleteProject(projId).catch(e => console.warn('[Sync]', e));
   };
 
   const handleUpdateScurve = (projId: string, scurvePlan: number[], scurveActual: number[]) => {
@@ -229,6 +203,7 @@ export default function App() {
     });
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    api.apiUpdateScurve(projId, scurvePlan, scurveActual).catch(e => console.warn('[Sync]', e));
   };
 
   const handleToggleInvoicePaid = (projId: string, invoiceId: string) => {
@@ -243,6 +218,9 @@ export default function App() {
     });
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    const _tp = updated.find(p => p.id === projId);
+    const _ti = _tp?.invoices.find(i => i.id === invoiceId);
+    if (_ti) api.apiUpdateInvoice({ ..._ti, projectId: projId }).catch(e => console.warn('[Sync]', e));
   };
 
   const handleAddInvoice = (projId: string, invoice: Omit<Invoice, 'id' | 'isPaid'>) => {
@@ -264,6 +242,7 @@ export default function App() {
     });
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    api.apiCreateInvoice({ ...inv, projectId: projId }).catch(e => console.warn('[Sync]', e));
   };
 
   const handleUpdateInvoice = (projId: string, updatedInv: Invoice) => {
@@ -278,6 +257,7 @@ export default function App() {
     });
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    api.apiUpdateInvoice({ ...updatedInv, projectId: projId }).catch(e => console.warn('[Sync]', e));
   };
 
   const handleDeleteInvoice = (projId: string, invoiceId: string) => {
@@ -292,6 +272,7 @@ export default function App() {
     });
     setProjects(updated);
     saveToLocalStorage('EBA_PROJECTS', updated);
+    api.apiDeleteInvoice(invoiceId).catch(e => console.warn('[Sync]', e));
   };
 
   const handleAddMaterial = (newMat: Omit<MaterialTransaction, 'id' | 'totalPrice'>) => {
@@ -303,6 +284,7 @@ export default function App() {
     const updated = [mat, ...materials];
     setMaterials(updated);
     saveToLocalStorage('EBA_MATERIALS', updated);
+    api.apiCreateMaterial(mat).catch(e => console.warn('[Sync]', e));
   };
 
   const handleAddPhoto = (newPhoto: Omit<ProgressPhoto, 'id' | 'watermarked'> & { id?: string }) => {
@@ -316,6 +298,7 @@ export default function App() {
       saveToLocalStorage('EBA_PHOTOS', updated);
       return updated;
     });
+    api.apiCreatePhoto(photo).catch(e => console.warn('[Sync]', e));
   };
 
   const handleAddEmployee = (newEmp: Omit<Employee, 'id'>) => {
@@ -326,18 +309,21 @@ export default function App() {
     const updated = [...employees, emp];
     setEmployees(updated);
     saveToLocalStorage('EBA_EMPLOYEES', updated);
+    api.apiCreateEmployee(emp).catch(e => console.warn('[Sync]', e));
   };
 
   const handleUpdateEmployee = (updatedEmp: Employee) => {
     const updated = employees.map(emp => emp.id === updatedEmp.id ? updatedEmp : emp);
     setEmployees(updated);
     saveToLocalStorage('EBA_EMPLOYEES', updated);
+    api.apiUpdateEmployee(updatedEmp).catch(e => console.warn('[Sync]', e));
   };
 
   const handleDeleteEmployee = (empId: string) => {
     const updated = employees.filter(emp => emp.id !== empId);
     setEmployees(updated);
     saveToLocalStorage('EBA_EMPLOYEES', updated);
+    api.apiDeleteEmployee(empId).catch(e => console.warn('[Sync]', e));
   };
 
   const handleLogAttendance = (records: Omit<Attendance, 'id'>[]) => {
@@ -351,6 +337,7 @@ export default function App() {
     const updated = [...formatted, ...filtered];
     setAttendance(updated);
     saveToLocalStorage('EBA_ATTENDANCE', updated);
+    api.apiReplaceAttendanceForDate(targetDate, formatted).catch(e => console.warn('[Sync]', e));
   };
 
   const handleAddKasbon = (newKas: Omit<Kasbon, 'id'>) => {
@@ -361,18 +348,21 @@ export default function App() {
     const updated = [kas, ...kasbons];
     setKasbons(updated);
     saveToLocalStorage('EBA_KASBONS', updated);
+    api.apiCreateKasbon(kas).catch(e => console.warn('[Sync]', e));
   };
 
   const handleUpdateKasbon = (updatedKas: Kasbon) => {
     const updated = kasbons.map(k => k.id === updatedKas.id ? updatedKas : k);
     setKasbons(updated);
     saveToLocalStorage('EBA_KASBONS', updated);
+    api.apiUpdateKasbon(updatedKas).catch(e => console.warn('[Sync]', e));
   };
 
   const handleDeleteKasbon = (id: string) => {
     const updated = kasbons.filter(k => k.id !== id);
     setKasbons(updated);
     saveToLocalStorage('EBA_KASBONS', updated);
+    api.apiDeleteKasbon(id).catch(e => console.warn('[Sync]', e));
   };
 
   const handleAddOvertime = (newOv: Omit<Overtime, 'id' | 'totalAmount'>) => {
@@ -384,18 +374,21 @@ export default function App() {
     const updated = [ov, ...overtimes];
     setOvertimes(updated);
     saveToLocalStorage('EBA_OVERTIMES', updated);
+    api.apiCreateOvertime(ov).catch(e => console.warn('[Sync]', e));
   };
 
   const handleUpdateOvertime = (updatedOv: Overtime) => {
     const updated = overtimes.map(o => o.id === updatedOv.id ? { ...updatedOv, totalAmount: updatedOv.hours * updatedOv.hourlyRate } : o);
     setOvertimes(updated);
     saveToLocalStorage('EBA_OVERTIMES', updated);
+    api.apiUpdateOvertime(updatedOv).catch(e => console.warn('[Sync]', e));
   };
 
   const handleDeleteOvertime = (id: string) => {
     const updated = overtimes.filter(o => o.id !== id);
     setOvertimes(updated);
     saveToLocalStorage('EBA_OVERTIMES', updated);
+    api.apiDeleteOvertime(id).catch(e => console.warn('[Sync]', e));
   };
 
   const handleAddExpense = (newExp: Omit<OtherExpense, 'id'>) => {
@@ -406,36 +399,42 @@ export default function App() {
     const updated = [exp, ...otherExpenses];
     setOtherExpenses(updated);
     saveToLocalStorage('EBA_EXPENSES', updated);
+    api.apiCreateExpense(exp).catch(e => console.warn('[Sync]', e));
   };
 
   const handleUpdateExpense = (updatedExp: OtherExpense) => {
     const updated = otherExpenses.map(e => e.id === updatedExp.id ? updatedExp : e);
     setOtherExpenses(updated);
     saveToLocalStorage('EBA_EXPENSES', updated);
+    api.apiUpdateExpense(updatedExp).catch(e => console.warn('[Sync]', e));
   };
 
   const handleDeleteExpense = (id: string) => {
     const updated = otherExpenses.filter(e => e.id !== id);
     setOtherExpenses(updated);
     saveToLocalStorage('EBA_EXPENSES', updated);
+    api.apiDeleteExpense(id).catch(e => console.warn('[Sync]', e));
   };
 
   const handleUpdateMaterial = (updatedMat: MaterialTransaction) => {
     const updated = materials.map(m => m.id === updatedMat.id ? updatedMat : m);
     setMaterials(updated);
     saveToLocalStorage('EBA_MATERIALS', updated);
+    api.apiUpdateMaterial(updatedMat).catch(e => console.warn('[Sync]', e));
   };
 
   const handleDeleteMaterial = (id: string) => {
     const updated = materials.filter(m => m.id !== id);
     setMaterials(updated);
     saveToLocalStorage('EBA_MATERIALS', updated);
+    api.apiDeleteMaterial(id).catch(e => console.warn('[Sync]', e));
   };
 
   const handleUpdatePhoto = (updatedPhoto: ProgressPhoto) => {
     const updated = photos.map(p => p.id === updatedPhoto.id ? updatedPhoto : p);
     setPhotos(updated);
     saveToLocalStorage('EBA_PHOTOS', updated);
+    api.apiUpdatePhoto(updatedPhoto).catch(e => console.warn('[Sync]', e));
   };
 
   const handleDeletePhoto = (idOrIds: string | string[]) => {
@@ -445,6 +444,8 @@ export default function App() {
       saveToLocalStorage('EBA_PHOTOS', updated);
       return updated;
     });
+    const _ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+    api.apiDeletePhotos(_ids).catch(e => console.warn('[Sync]', e));
   };
 
   const handleAddOfflineItem = (type: 'photo', payload: any) => {
@@ -579,8 +580,6 @@ export default function App() {
         onSync={handleSyncQueue}
         encryptionKey={encryptionKey}
         setEncryptionKey={setEncryptionKey}
-        autoSyncStatus={autoSyncStatus}
-        autoSyncMessage={autoSyncMessage}
       />
 
       {/* Main Body */}
