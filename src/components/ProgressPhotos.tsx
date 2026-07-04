@@ -100,6 +100,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
   const [includeGps, setIncludeGps] = useState(true);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // Simulated GPS details based on Project
   const getGpsForProject = (projId: string) => {
@@ -283,26 +284,54 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
             </label>
 
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              {/* Photo selector box */}
+              {/* Photo selector boxes: Kamera & Galeri */}
               {selectedFiles.length < 5 && (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={capturing}
-                  className="aspect-square border-2 border-dashed border-gray-200 dark:border-gray-700 hover:border-orange-500 dark:hover:border-orange-400 rounded-2xl flex flex-col items-center justify-center gap-1.5 bg-gray-50 dark:bg-gray-900 hover:bg-orange-50/10 transition-all text-gray-400 hover:text-orange-600 dark:hover:text-orange-400"
-                >
-                  {capturing ? (
-                    <Loader2 size={24} className="animate-spin text-orange-600" />
-                  ) : (
-                    <>
-                      <Camera size={24} />
-                      <span className="text-[10px] font-bold uppercase">{lang === 'id' ? 'Ambil Foto' : 'Take Photo'}</span>
-                    </>
-                  )}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    disabled={capturing}
+                    className="aspect-square border-2 border-dashed border-gray-200 dark:border-gray-700 hover:border-orange-500 dark:hover:border-orange-400 rounded-2xl flex flex-col items-center justify-center gap-1.5 bg-gray-50 dark:bg-gray-900 hover:bg-orange-50/10 transition-all text-gray-400 hover:text-orange-600 dark:hover:text-orange-400"
+                  >
+                    {capturing ? (
+                      <Loader2 size={24} className="animate-spin text-orange-600" />
+                    ) : (
+                      <>
+                        <Camera size={24} />
+                        <span className="text-[10px] font-bold uppercase">{lang === 'id' ? 'Kamera HP' : 'Device Camera'}</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={capturing}
+                    className="aspect-square border-2 border-dashed border-gray-200 dark:border-gray-700 hover:border-orange-500 dark:hover:border-orange-400 rounded-2xl flex flex-col items-center justify-center gap-1.5 bg-gray-50 dark:bg-gray-900 hover:bg-orange-50/10 transition-all text-gray-400 hover:text-orange-600 dark:hover:text-orange-400"
+                  >
+                    {capturing ? (
+                      <Loader2 size={24} className="animate-spin text-orange-600" />
+                    ) : (
+                      <>
+                        <ImageIcon size={24} />
+                        <span className="text-[10px] font-bold uppercase">{lang === 'id' ? 'Galeri Foto' : 'Photo Gallery'}</span>
+                      </>
+                    )}
+                  </button>
+                </>
               )}
 
-              {/* Upload input reference */}
+              {/* Camera direct input */}
+              <input
+                type="file"
+                ref={cameraInputRef}
+                onChange={handleFileChange}
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+              />
+
+              {/* Gallery upload input */}
               <input
                 type="file"
                 ref={fileInputRef}

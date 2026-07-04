@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Modern high-contrast contractor orange gradient -->
+    <linearGradient id="orange-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ea580c" />
+      <stop offset="100%" stop-color="#c2410c" />
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Rectangle -->
+  <rect width="450" height="450" x="31" y="31" rx="110" fill="url(#orange-grad)" />
+  <!-- Bold high-visibility text EBA -->
+  <text x="50%" y="54%" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="160" fill="#ffffff" text-anchor="middle" dominant-baseline="middle" letter-spacing="4">EBA</text>
+</svg>

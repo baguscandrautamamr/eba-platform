@@ -74,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
     setPinError('');
 
     if (newPin.length === 4) {
-      const correctPin = pendingRole === 'admin' ? '1234' : '5678';
+      const correctPin = pendingRole === 'admin' ? '0009' : '5678';
       if (newPin === correctPin) {
         setRole(pendingRole!);
         setShowPinModal(false);
@@ -286,8 +286,19 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Role Switch Secure PIN Keypad Modal */}
       {showPinModal && pendingRole && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" id="role-pin-modal">
-          <div className="w-full max-w-sm bg-white dark:bg-gray-900 rounded-2xl p-6 shadow-2xl border border-gray-150 dark:border-gray-800 animate-in fade-in zoom-in-95 duration-150 flex flex-col items-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" id="role-pin-modal">
+          <div 
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 cursor-pointer"
+            onClick={() => {
+              setShowPinModal(false);
+              setPendingRole(null);
+              setPinInput('');
+            }}
+          />
+          <div 
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[calc(100%-2rem)] max-w-sm bg-white dark:bg-gray-900 rounded-2xl p-6 shadow-2xl border border-gray-150 dark:border-gray-800 animate-in fade-in zoom-in-95 duration-150 flex flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
             
             {/* Modal Header */}
             <div className="w-full flex items-center justify-between mb-4">

@@ -57,7 +57,7 @@ export default function App() {
   // System State
   const [theme, setTheme] = useState<Theme>('light');
   const [lang, setLang] = useState<Language>('id');
-  const [role, setRole] = useState<UserRole>('admin');
+  const [role, setRole] = useState<UserRole>('guest');
   const [isOffline, setIsOffline] = useState(false);
   const [encryptionKey, setEncryptionKey] = useState('EBA_SECURE_KEY');
   const [activeTab, setActiveTab] = useState('dashboard');
