@@ -1189,7 +1189,7 @@ function exportDatabaseToSheets(db, folder) {
                               : 'AUTOMATIC'}
                           </span>
                         </div>
-                        <p className={`text-[11px] truncate max-w-sm sm:max-w-md font-mono mt-0.5 ${
+                        <p className={`text-[11px] truncate max-w-[180px] sm:max-w-sm md:max-w-md font-mono mt-0.5 ${
                           gasUrl && (gasUrl.includes('/edit') || gasUrl.includes('/home') || gasUrl.includes('/d/') || !gasUrl.includes('/exec'))
                             ? 'text-red-500 font-bold'
                             : 'text-gray-400'
