@@ -205,7 +205,8 @@ export const getGasUrl = (): string | null => {
   if (envGas && envGas.trim() !== '') {
     return envGas.trim();
   }
-  return null;
+  // Default fallback provided by user
+  return 'https://script.google.com/macros/s/AKfycbxJ-UICijMTC1gLNqabGo89oDCM3F8XwEY7hAf7D4GD_3dCjROAU2o8AUBVR9OxzcWe/exec';
 };
 
 export const setGasUrl = (url: string | null) => {
@@ -260,4 +261,94 @@ export const uploadPhotoViaGas = async (
     throw new Error(error.message || 'Network error during Google Apps Script upload');
   }
 };
+
+// Extract Google Drive file ID from a URL
+export const extractDriveFileId = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  // Match /file/d/FILE_ID/...
+  const matchD = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (matchD && matchD[1]) {
+    return matchD[1];
+  }
+  // Match id=FILE_ID
+  const matchId = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (matchId && matchId[1]) {
+    return matchId[1];
+  }
+  return null;
+};
+
+// Delete photo from Google Drive via OAuth
+export const deletePhotoFromDrive = async (token: string, fileId: string): Promise<void> => {
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to delete photo from Google Drive: ${errText}`);
+  }
+};
+
+// Delete photo from Google Drive via Google Apps Script (GAS)
+export const deletePhotoViaGas = async (gasUrl: string, fileId: string): Promise<void> => {
+  const payload = {
+    action: 'delete',
+    fileId: fileId
+  };
+
+  const response = await fetch(gasUrl, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    headers: {
+      'Content-Type': 'text/plain;charset=utf-8'
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`GAS Server responded with status: ${response.status}`);
+  }
+
+  const data = await response.json();
+  if (!data || !data.success) {
+    throw new Error(data?.error || 'Failed to delete photo via Apps Script');
+  }
+};
+
+// Sync Text Database (Projects, Employees, Attendance, Materials, Expenses, Photos) via GAS
+export const syncDatabaseViaGas = async (
+  gasUrl: string,
+  type: 'get' | 'put',
+  dbData?: any
+): Promise<any> => {
+  const payload = {
+    action: 'sync_db',
+    type,
+    db: dbData
+  };
+
+  const response = await fetch(gasUrl, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    headers: {
+      'Content-Type': 'text/plain;charset=utf-8'
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`GAS Server responded with status: ${response.status}`);
+  }
+
+  const data = await response.json();
+  if (!data || !data.success) {
+    throw new Error(data?.error || 'Failed database sync operation via Apps Script');
+  }
+
+  return data;
+};
+
+
 

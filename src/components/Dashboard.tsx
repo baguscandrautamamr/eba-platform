@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Project, MaterialTransaction, Employee, Attendance, Kasbon, Overtime, OtherExpense, Language, UserRole } from '../types';
 import { AlertCircle, TrendingUp, CheckCircle, Wallet, Users, FileText, ArrowUpRight, ArrowDownRight, Calendar, Clock, ClipboardCheck } from 'lucide-react';
+import { DatabaseSync } from './DatabaseSync';
 
 interface DashboardProps {
   projects: Project[];
@@ -12,6 +13,9 @@ interface DashboardProps {
   otherExpenses: OtherExpense[];
   lang: Language;
   role?: UserRole;
+  isOffline: boolean;
+  onDataRestore: (restoredData: any) => void;
+  onDataBackup: () => any;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -23,7 +27,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   overtimes,
   otherExpenses,
   lang,
-  role = 'admin'
+  role = 'admin',
+  isOffline,
+  onDataRestore,
+  onDataBackup
 }) => {
   // Calculate totals
   const totalBudget = projects.reduce((acc, p) => acc + p.budget, 0);
@@ -379,6 +386,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* Cloud Database Sync Panel */}
+      <DatabaseSync
+        onDataRestore={onDataRestore}
+        onDataBackup={onDataBackup}
+        lang={lang}
+        role={role}
+        isOffline={isOffline}
+      />
 
     </div>
   );

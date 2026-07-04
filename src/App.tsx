@@ -57,7 +57,14 @@ export default function App() {
   // System State
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('EBA_THEME') as Theme) || 'light');
   const [lang, setLang] = useState<Language>(() => (localStorage.getItem('EBA_LANG') as Language) || 'id');
-  const [role, setRole] = useState<UserRole>(() => (localStorage.getItem('EBA_ROLE') as UserRole) || 'guest');
+  const [role, setRole] = useState<UserRole>(() => {
+    const savedRole = localStorage.getItem('EBA_ROLE');
+    if (!savedRole) {
+      localStorage.setItem('EBA_ROLE', 'guest');
+      return 'guest';
+    }
+    return savedRole as UserRole;
+  });
   const [isOffline, setIsOffline] = useState(false);
   const [encryptionKey, setEncryptionKey] = useState('EBA_SECURE_KEY');
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -94,13 +101,14 @@ export default function App() {
     window.document.documentElement.lang = lang;
   }, [lang]);
 
-  // Handle Guest Role restriction
-  // Guest can ONLY see/input progress photos
+  // Handle Guest / Mandor Role restriction
   useEffect(() => {
     if (role === 'guest') {
       setActiveTab('photos');
+    } else if (role === 'mandor' && activeTab === 'devops') {
+      setActiveTab('dashboard');
     }
-  }, [role]);
+  }, [role, activeTab]);
 
   // Load and save state simulated encryption
   useEffect(() => {
@@ -423,6 +431,57 @@ export default function App() {
     setOfflineQueue([]);
   };
 
+  // Database Backup and Restore Handlers
+  const handleRestoreDatabase = (restored: any) => {
+    if (!restored) return;
+    
+    if (Array.isArray(restored.projects)) {
+      setProjects(restored.projects);
+      saveToLocalStorage('EBA_PROJECTS', restored.projects);
+    }
+    if (Array.isArray(restored.materials)) {
+      setMaterials(restored.materials);
+      saveToLocalStorage('EBA_MATERIALS', restored.materials);
+    }
+    if (Array.isArray(restored.employees)) {
+      setEmployees(restored.employees);
+      saveToLocalStorage('EBA_EMPLOYEES', restored.employees);
+    }
+    if (Array.isArray(restored.attendance)) {
+      setAttendance(restored.attendance);
+      saveToLocalStorage('EBA_ATTENDANCE', restored.attendance);
+    }
+    if (Array.isArray(restored.kasbons)) {
+      setKasbons(restored.kasbons);
+      saveToLocalStorage('EBA_KASBONS', restored.kasbons);
+    }
+    if (Array.isArray(restored.overtimes)) {
+      setOvertimes(restored.overtimes);
+      saveToLocalStorage('EBA_OVERTIMES', restored.overtimes);
+    }
+    if (Array.isArray(restored.otherExpenses)) {
+      setOtherExpenses(restored.otherExpenses);
+      saveToLocalStorage('EBA_EXPENSES', restored.otherExpenses);
+    }
+    if (Array.isArray(restored.photos)) {
+      setPhotos(restored.photos);
+      saveToLocalStorage('EBA_PHOTOS', restored.photos);
+    }
+  };
+
+  const handleBackupDatabase = () => {
+    return {
+      projects,
+      materials,
+      employees,
+      attendance,
+      kasbons,
+      overtimes,
+      otherExpenses: otherExpenses,
+      photos
+    };
+  };
+
   // DevOps simulated logs modifiers
   const handleAddDeploymentLog = (log: DeploymentLog) => {
     setDeploymentLogs([log, ...deploymentLogs]);
@@ -456,9 +515,11 @@ export default function App() {
     { id: 'devops', label: t.deployments, icon: Terminal }
   ];
 
-  // Filter tabs for Guest
+  // Filter tabs for Guest, Mandor, and Admin
   const filteredTabs = role === 'guest' 
     ? tabs.filter(tab => tab.id === 'photos') 
+    : role === 'mandor'
+    ? tabs.filter(tab => tab.id !== 'devops')
     : tabs;
 
   const showMoreMenu = filteredTabs.length > 4;
@@ -528,6 +589,9 @@ export default function App() {
               otherExpenses={otherExpenses}
               lang={lang}
               role={role}
+              isOffline={isOffline}
+              onDataRestore={handleRestoreDatabase}
+              onDataBackup={handleBackupDatabase}
             />
           )}
 
@@ -620,7 +684,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'devops' && role !== 'guest' && (
+          {activeTab === 'devops' && role === 'admin' && (
             <DeploymentDashboard 
               logs={deploymentLogs}
               onAddLog={handleAddDeploymentLog}

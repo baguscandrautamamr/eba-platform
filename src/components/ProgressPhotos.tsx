@@ -10,7 +10,10 @@ import {
   uploadPhotoToDrive,
   getGasUrl,
   setGasUrl,
-  uploadPhotoViaGas
+  uploadPhotoViaGas,
+  deletePhotoFromDrive,
+  deletePhotoViaGas,
+  extractDriveFileId
 } from '../utils/googleDrive';
 import { User } from 'firebase/auth';
 
@@ -84,6 +87,101 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
   // Lightbox Detail state
   const [activeLightboxPhoto, setActiveLightboxPhoto] = useState<ProgressPhoto | null>(null);
+
+  // Photo selection state
+  const [selectedPhotos, setSelectedPhotos] = useState<string[]>([]);
+
+  // Toggle selection
+  const toggleSelectPhoto = (phId: string) => {
+    setSelectedPhotos(prev => {
+      if (prev.includes(phId)) {
+        return prev.filter(id => id !== phId);
+      } else {
+        return [...prev, phId];
+      }
+    });
+  };
+
+  // Delete single photo (handles Google Drive sync)
+  const handleDeleteSinglePhoto = async (ph: ProgressPhoto) => {
+    setIsBackingUp(true);
+    setBackupStatus(lang === 'id' ? 'Menghapus foto dari Google Drive...' : 'Deleting photo from Google Drive...');
+
+    try {
+      const usingGas = !!gasUrl;
+      if (ph.driveUrls && ph.driveUrls.length > 0) {
+        const fileId = extractDriveFileId(ph.driveUrls[0]);
+        if (fileId) {
+          try {
+            if (usingGas) {
+              await deletePhotoViaGas(gasUrl, fileId);
+            } else if (gdToken) {
+              await deletePhotoFromDrive(gdToken, fileId);
+            }
+          } catch (err) {
+            console.error(`Failed to delete file ${fileId} from Drive:`, err);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error('Error deleting single photo from Drive:', err);
+    } finally {
+      setIsBackingUp(false);
+      setBackupStatus('');
+      // Proceed to delete locally
+      onDeletePhoto(ph.id);
+      setActiveLightboxPhoto(null);
+      setDeleteConfirmId(null);
+      // Remove from selected list if present
+      setSelectedPhotos(prev => prev.filter(id => id !== ph.id));
+    }
+  };
+
+  // Delete multiple selected photos (handles Google Drive sync)
+  const handleDeleteSelectedPhotos = async () => {
+    if (selectedPhotos.length === 0) return;
+
+    const confirmMessage = lang === 'id'
+      ? `Apakah Anda yakin ingin menghapus ${selectedPhotos.length} foto terpilih? Tindakan ini akan menghapus foto dari pangkalan data dan juga dari Google Drive (jika ada).`
+      : `Are you sure you want to delete ${selectedPhotos.length} selected photo(s)? This will delete them from the local database and Google Drive (if synced).`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    setIsBackingUp(true);
+    setBackupStatus(lang === 'id' ? 'Menghapus foto-foto dari Google Drive...' : 'Deleting photos from Google Drive...');
+
+    try {
+      const photosToDelete = photos.filter(p => selectedPhotos.includes(p.id));
+      const usingGas = !!gasUrl;
+
+      const deletePromises = photosToDelete.map(async (ph) => {
+        if (ph.driveUrls && ph.driveUrls.length > 0) {
+          const fileId = extractDriveFileId(ph.driveUrls[0]);
+          if (fileId) {
+            try {
+              if (usingGas) {
+                await deletePhotoViaGas(gasUrl, fileId);
+              } else if (gdToken) {
+                await deletePhotoFromDrive(gdToken, fileId);
+              }
+            } catch (err) {
+              console.error(`Failed to delete file ${fileId} from Drive:`, err);
+            }
+          }
+        }
+        // Always delete from local/parent state regardless of Drive success
+        onDeletePhoto(ph.id);
+      });
+
+      await Promise.all(deletePromises);
+      setSelectedPhotos([]);
+    } catch (err: any) {
+      console.error('Error in batch photo deletion:', err);
+    } finally {
+      setIsBackingUp(false);
+      setBackupStatus('');
+    }
+  };
 
   // Print & Download states
   const [showPrintPreview, setShowPrintPreview] = useState(false);
@@ -502,6 +600,56 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
     const code = `function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
+    
+    // Support delete action
+    if (data.action === 'delete') {
+      var fileId = data.fileId;
+      if (!fileId) {
+        throw new Error('fileId is required for delete action');
+      }
+      var file = DriveApp.getFileById(fileId);
+      file.setTrashed(true);
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'File moved to trash' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Support Database Sync Action (JSON file storage in Google Drive)
+    if (data.action === 'sync_db') {
+      var folder;
+      var folders = DriveApp.getFoldersByName("EBA Progress Photos");
+      if (folders.hasNext()) {
+        folder = folders.next();
+      } else {
+        folder = DriveApp.createFolder("EBA Progress Photos");
+      }
+      
+      var fileName = "eba_project_db.json";
+      var files = folder.getFilesByName(fileName);
+      var dbFile;
+      
+      if (data.type === 'get') {
+        if (files.hasNext()) {
+          dbFile = files.next();
+          var content = dbFile.getAs("MIME_JSON").getDataAsString();
+          return ContentService.createTextOutput(JSON.stringify({ success: true, found: true, db: JSON.parse(content) }))
+            .setMimeType(ContentService.MimeType.JSON);
+        } else {
+          return ContentService.createTextOutput(JSON.stringify({ success: true, found: false, message: 'No backup file found' }))
+            .setMimeType(ContentService.MimeType.JSON);
+        }
+      } else if (data.type === 'put') {
+        var jsonString = JSON.stringify(data.db, null, 2);
+        if (files.hasNext()) {
+          dbFile = files.next();
+          dbFile.setContent(jsonString);
+        } else {
+          dbFile = folder.createFile(fileName, jsonString, "application/json");
+        }
+        return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Database synced successfully' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+    
     var base64Data = data.image;
     
     // Handle standard base64 formats with or without MIME headers
@@ -1280,49 +1428,79 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
               <span>{lang === 'id' ? 'Galeri Dokumentasi Progress' : 'Project Documentation Gallery'}</span>
             </h3>
             <p className="text-xs text-gray-400 dark:text-gray-500">
-              {lang === 'id' ? 'Klik foto untuk melihat keterangan lengkap dan detail gambar' : 'Click any photo thumbnail to see detailed notes and GPS location'}
+              {lang === 'id' 
+                ? 'Klik 1x untuk menyeleksi (bisa hapus massal), klik 2x untuk membuka popup detail. Klik gambar di dalam popup untuk menutup.' 
+                : 'Click 1x to select (allows batch delete), double-click to open detail popup. Click the photo in the popup to close.'}
             </p>
           </div>
-          <span className="text-[10px] font-mono text-gray-400 font-bold bg-gray-100 dark:bg-gray-900 px-2 py-0.5 rounded-md">
-            {filteredPhotos.length} {lang === 'id' ? 'Foto' : 'Photos'}
-          </span>
+          <div className="flex items-center gap-2">
+            {selectedPhotos.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteSelectedPhotos}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-red-600/15"
+              >
+                <Trash2 size={13} />
+                <span>
+                  {lang === 'id'
+                    ? `Hapus ${selectedPhotos.length} Terpilih`
+                    : `Delete ${selectedPhotos.length} Selected`}
+                </span>
+              </button>
+            )}
+            <span className="text-[10px] font-mono text-gray-400 font-bold bg-gray-100 dark:bg-gray-900 px-2 py-0.5 rounded-md">
+              {filteredPhotos.length} {lang === 'id' ? 'Foto' : 'Photos'}
+            </span>
+          </div>
         </div>
 
         {/* Dense grid of smaller thumbnails */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5" id="photo-gallery-grid">
-          {filteredPhotos.map((ph) => (
-            <div
-              key={ph.id}
-              onClick={() => setActiveLightboxPhoto(ph)}
-              className="group aspect-square bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-150 dark:border-gray-750 shadow-sm overflow-hidden relative cursor-pointer hover:shadow-md hover:border-orange-200 transition-all duration-200 animate-in fade-in"
-            >
-              <img
-                src={ph.images[0]}
-                alt="Progress thumbnail"
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                referrerPolicy="no-referrer"
-              />
-              
-              {/* Subtle hover/touch info badge overlay */}
-              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2 text-[9px] text-white">
-                <p className="font-bold truncate">{ph.projectName}</p>
-                <p className="font-mono text-gray-300 mt-0.5">{ph.date}</p>
-              </div>
-
-              {/* Google Drive Status Badge */}
-              {role === 'admin' && ph.driveUrls && ph.driveUrls.length > 0 && (
-                <div className="absolute top-1.5 left-1.5 bg-blue-600/95 text-white font-mono text-[8px] font-bold px-1.5 py-0.5 rounded shadow-sm flex items-center gap-1 z-10">
-                  <Cloud size={8} />
-                  <span>Drive</span>
+          {filteredPhotos.map((ph) => {
+            const isSelected = selectedPhotos.includes(ph.id);
+            return (
+              <div
+                key={ph.id}
+                onClick={() => toggleSelectPhoto(ph.id)}
+                onDoubleClick={() => setActiveLightboxPhoto(ph)}
+                className={`group aspect-square bg-gray-50 dark:bg-gray-900 rounded-xl border overflow-hidden relative cursor-pointer hover:shadow-md transition-all duration-200 animate-in fade-in ${
+                  isSelected
+                    ? 'border-orange-500 ring-2 ring-orange-500/30 shadow-md scale-[0.98]'
+                    : 'border-gray-150 dark:border-gray-750 shadow-sm hover:border-orange-200'
+                }`}
+              >
+                <img
+                  src={ph.images[0]}
+                  alt="Progress thumbnail"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  referrerPolicy="no-referrer"
+                />
+                
+                {/* Subtle hover/touch info badge overlay */}
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2 text-[9px] text-white">
+                  <p className="font-bold truncate">{ph.projectName}</p>
+                  <p className="font-mono text-gray-300 mt-0.5">{ph.date}</p>
                 </div>
-              )}
- 
-              {/* Verified Badge */}
-              <div className="absolute top-1.5 right-1.5 bg-emerald-600 text-white font-mono text-[7px] font-bold px-1.5 py-0.5 rounded shadow-sm">
-                ✓
+
+                {/* Google Drive Status Badge */}
+                {role === 'admin' && ph.driveUrls && ph.driveUrls.length > 0 && (
+                  <div className="absolute top-1.5 left-1.5 bg-blue-600/95 text-white font-mono text-[8px] font-bold px-1.5 py-0.5 rounded shadow-sm flex items-center gap-1 z-10">
+                    <Cloud size={8} />
+                    <span>Drive</span>
+                  </div>
+                )}
+   
+                {/* Custom Checkbox/Selection Circle indicator */}
+                <div className={`absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center border transition-all z-20 ${
+                  isSelected
+                    ? 'bg-orange-500 border-orange-500 text-white shadow'
+                    : 'bg-black/40 border-white/60 text-transparent group-hover:bg-black/60'
+                }`}>
+                  <CheckCircle size={12} className={isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 text-white"} />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {filteredPhotos.length === 0 && (
             <div className="col-span-full py-12 text-center text-gray-400 dark:text-gray-500 text-xs">
@@ -1334,11 +1512,17 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
       {/* Lightbox Detail View Modal */}
       {activeLightboxPhoto && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700/60 shadow-2xl max-w-2xl w-full overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col">
+        <div 
+          className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-150 overflow-y-auto"
+          onClick={() => setActiveLightboxPhoto(null)}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700/60 shadow-2xl max-w-2xl w-full overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
             
-            {/* Header */}
-            <div className="p-4 border-b border-gray-100 dark:border-gray-750 flex items-center justify-between">
+            {/* Header - Pinned at the top */}
+            <div className="p-4 border-b border-gray-100 dark:border-gray-750 flex items-center justify-between shrink-0">
               <div>
                 <h4 className="font-sans font-bold text-xs text-orange-600 dark:text-orange-400 uppercase tracking-wider">{activeLightboxPhoto.projectName}</h4>
                 <p className="text-[10px] text-gray-450 font-mono mt-0.5">Dokumentasi Lapangan | {activeLightboxPhoto.date} {activeLightboxPhoto.time}</p>
@@ -1346,100 +1530,108 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveLightboxPhoto(null)}
-                className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-900 hover:bg-gray-250 dark:hover:bg-gray-800 text-gray-650 dark:text-gray-400 flex items-center justify-center font-bold text-sm transition-colors"
+                className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-900 hover:bg-gray-200 dark:hover:bg-gray-750 text-gray-650 dark:text-gray-400 flex items-center justify-center font-bold text-lg transition-colors shadow-sm"
+                aria-label="Close"
               >
                 ×
               </button>
             </div>
 
-            {/* Photo Preview Stage */}
-            <div className="bg-black flex items-center justify-center relative aspect-video sm:max-h-[380px]">
-              <img
-                src={activeLightboxPhoto.images[0]}
-                alt="Fullscreen Doc"
-                className="max-h-full max-w-full object-contain"
-                referrerPolicy="no-referrer"
-              />
-              
-              {activeLightboxPhoto.gpsLocation && (
-                <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-sm px-2.5 py-1 rounded-lg text-[9px] font-bold text-sky-400 flex items-center gap-1 shadow-sm">
-                  <MapPin size={10} />
-                  <span>{activeLightboxPhoto.gpsLocation}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Footer with Description and actions */}
-            <div className="p-5 space-y-4">
-              <div className="space-y-1.5">
-                <span className="text-[9px] font-black text-gray-400 dark:text-gray-550 uppercase tracking-widest">{lang === 'id' ? 'Catatan Lapangan' : 'Field Notes'}</span>
-                <p className="text-xs text-gray-700 dark:text-gray-250 bg-gray-50 dark:bg-gray-900/40 p-3 rounded-xl border border-gray-100 dark:border-gray-850 leading-relaxed">
-                  {activeLightboxPhoto.notes}
-                </p>
+            {/* Scrollable Body Container */}
+            <div className="overflow-y-auto flex-1">
+              {/* Photo Preview Stage - Constrained max height for vertical images */}
+              <div 
+                className="bg-black flex items-center justify-center relative w-full h-[40vh] sm:h-auto sm:aspect-video sm:max-h-[385px] cursor-pointer" 
+                onClick={() => setActiveLightboxPhoto(null)}
+              >
+                <img
+                  src={activeLightboxPhoto.images[0]}
+                  alt="Fullscreen Doc"
+                  className="max-h-full max-w-full object-contain hover:opacity-90 transition-opacity"
+                  referrerPolicy="no-referrer"
+                  title={lang === 'id' ? 'Klik gambar untuk menutup' : 'Click image to close'}
+                />
+                
+                {activeLightboxPhoto.gpsLocation && (
+                  <div className="absolute top-3 left-3 bg-black/75 backdrop-blur-sm px-2.5 py-1 rounded-lg text-[9px] font-bold text-sky-400 flex items-center gap-1 shadow-sm">
+                    <MapPin size={10} />
+                    <span>{activeLightboxPhoto.gpsLocation}</span>
+                  </div>
+                )}
               </div>
 
-              {/* Action buttons */}
-              <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-750">
-                <div className="flex items-center gap-2">
-                  <div className="text-[9px] font-bold text-emerald-600 flex items-center gap-1 uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-1 rounded border border-emerald-100 dark:border-emerald-900/20">
-                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
-                    <span>{lang === 'id' ? 'Terverifikasi Cloud' : 'Cloud Synchronized'}</span>
-                  </div>
-
-                  {role === 'admin' && activeLightboxPhoto.driveUrls && activeLightboxPhoto.driveUrls.length > 0 && (
-                    <a
-                      href={activeLightboxPhoto.driveUrls[0]}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[9px] font-bold text-blue-650 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 flex items-center gap-1 uppercase bg-blue-50 dark:bg-blue-950/20 px-2 py-1 rounded border border-blue-100 dark:border-blue-900/20 transition-colors"
-                    >
-                      <Link size={10} />
-                      <span>Drive Link</span>
-                    </a>
-                  )}
+              {/* Description and actions */}
+              <div className="p-5 space-y-4">
+                <div className="space-y-1.5">
+                  <span className="text-[9px] font-black text-gray-400 dark:text-gray-550 uppercase tracking-widest">{lang === 'id' ? 'Catatan Lapangan' : 'Field Notes'}</span>
+                  <p className="text-xs text-gray-700 dark:text-gray-250 bg-gray-50 dark:bg-gray-900/40 p-3 rounded-xl border border-gray-100 dark:border-gray-850 leading-relaxed">
+                    {activeLightboxPhoto.notes}
+                  </p>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingPhoto(activeLightboxPhoto);
-                      setActiveLightboxPhoto(null);
-                    }}
-                    className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-900 dark:hover:bg-gray-850 text-gray-750 dark:text-gray-350 text-[11px] font-bold rounded-lg flex items-center gap-1 transition-colors"
-                  >
-                    <Edit2 size={12} />
-                    <span>{lang === 'id' ? 'Edit' : 'Edit'}</span>
-                  </button>
-
-                  {deleteConfirmId === activeLightboxPhoto.id ? (
-                    <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded-lg border border-red-200 dark:border-red-900/30">
-                      <button
-                        type="button"
-                        onClick={() => { onDeletePhoto(activeLightboxPhoto.id); setDeleteConfirmId(null); setActiveLightboxPhoto(null); }}
-                        className="text-[10px] font-extrabold text-red-650 hover:text-red-850 uppercase tracking-wider"
-                      >
-                        {lang === 'id' ? 'Ya' : 'Yes'}
-                      </button>
-                      <span className="text-gray-350 dark:text-gray-650">|</span>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteConfirmId(null)}
-                        className="text-[10px] font-extrabold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 uppercase tracking-wider"
-                      >
-                        {lang === 'id' ? 'Batal' : 'No'}
-                      </button>
+                {/* Action buttons */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-100 dark:border-gray-750">
+                  <div className="flex items-center gap-2">
+                    <div className="text-[9px] font-bold text-emerald-600 flex items-center gap-1 uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-1 rounded border border-emerald-100 dark:border-emerald-900/20">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                      <span>{lang === 'id' ? 'Terverifikasi Cloud' : 'Cloud Synchronized'}</span>
                     </div>
-                  ) : (
+
+                    {role === 'admin' && activeLightboxPhoto.driveUrls && activeLightboxPhoto.driveUrls.length > 0 && (
+                      <a
+                        href={activeLightboxPhoto.driveUrls[0]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[9px] font-bold text-blue-650 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 flex items-center gap-1 uppercase bg-blue-50 dark:bg-blue-950/20 px-2 py-1 rounded border border-blue-100 dark:border-blue-900/20 transition-colors"
+                      >
+                        <Link size={10} />
+                        <span>Drive Link</span>
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setDeleteConfirmId(activeLightboxPhoto.id)}
-                      className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-650 text-[11px] font-bold rounded-lg flex items-center gap-1 transition-colors"
+                      onClick={() => {
+                        setEditingPhoto(activeLightboxPhoto);
+                        setActiveLightboxPhoto(null);
+                      }}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-900 dark:hover:bg-gray-850 text-gray-750 dark:text-gray-350 text-[11px] font-bold rounded-lg flex items-center gap-1 transition-colors"
                     >
-                      <Trash2 size={12} />
-                      <span>{lang === 'id' ? 'Hapus' : 'Delete'}</span>
+                      <Edit2 size={12} />
+                      <span>{lang === 'id' ? 'Edit' : 'Edit'}</span>
                     </button>
-                  )}
+
+                    {deleteConfirmId === activeLightboxPhoto.id ? (
+                      <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded-lg border border-red-200 dark:border-red-900/30">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSinglePhoto(activeLightboxPhoto)}
+                          className="text-[10px] font-extrabold text-red-650 hover:text-red-850 uppercase tracking-wider"
+                        >
+                          {lang === 'id' ? 'Ya' : 'Yes'}
+                        </button>
+                        <span className="text-gray-350 dark:text-gray-650">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmId(null)}
+                          className="text-[10px] font-extrabold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 uppercase tracking-wider"
+                        >
+                          {lang === 'id' ? 'Batal' : 'No'}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirmId(activeLightboxPhoto.id)}
+                        className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-650 text-[11px] font-bold rounded-lg flex items-center gap-1 transition-colors"
+                      >
+                        <Trash2 size={12} />
+                        <span>{lang === 'id' ? 'Hapus' : 'Delete'}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
