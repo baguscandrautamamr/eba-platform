@@ -233,6 +233,7 @@ export const uploadPhotoViaGas = async (
     time: string;
     notes: string;
     gpsLocation?: string;
+    roomName?: string;
   }
 ): Promise<{ id: string; webViewLink?: string }> => {
   try {

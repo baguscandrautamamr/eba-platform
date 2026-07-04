@@ -47,6 +47,7 @@ export interface ProgressPhoto {
   gpsLocation?: string; // Lat, Lng
   watermarked: boolean;
   driveUrls?: string[]; // Optional Google Drive web view links
+  roomName?: string; // Room/Space name (Nama Ruangan)
 }
 
 export interface Employee {

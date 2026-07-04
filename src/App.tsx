@@ -56,7 +56,10 @@ import {
 export default function App() {
   // System State
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('EBA_THEME') as Theme) || 'light');
-  const [lang, setLang] = useState<Language>(() => (localStorage.getItem('EBA_LANG') as Language) || 'id');
+  const [lang, setLang] = useState<Language>(() => {
+    const saved = localStorage.getItem('EBA_LANG');
+    return (saved === 'id' || saved === 'en') ? saved : 'id';
+  });
   const [role, setRole] = useState<UserRole>(() => {
     const savedRole = localStorage.getItem('EBA_ROLE');
     if (!savedRole || savedRole === 'guest' || savedRole === 'mandor') {
@@ -84,7 +87,7 @@ export default function App() {
   // Offline Sync Queue state
   const [offlineQueue, setOfflineQueue] = useState<UploadQueueItem[]>([]);
 
-  const t = translations[lang];
+  const t = translations[lang] || translations['id'];
 
   // Apply Theme class on root
   useEffect(() => {

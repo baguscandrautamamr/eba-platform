@@ -287,7 +287,9 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
   const [selProjId, setSelProjId] = useState(projects[0]?.id || '');
   const [notes, setNotes] = useState('');
+  const [roomName, setRoomName] = useState('');
   const [capturing, setCapturing] = useState(false);
+  const [rawFiles, setRawFiles] = useState<string[]>([]); // original unwatermarked base64s
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]); // Base64s of watermarked images
   const [includeGps, setIncludeGps] = useState(true);
   
@@ -302,7 +304,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
   };
 
   // Watermark implementation using canvas
-  const processImageAndApplyWatermark = (base64Str: string, projectName: string, gps: string): Promise<string> => {
+  const processImageAndApplyWatermark = (base64Str: string, projectName: string, gps: string, room: string): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
       img.src = base64Str;
@@ -359,11 +361,63 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
           ctx.fillText(`GPS: ${gps}`, 20, canvas.height - 15);
         }
 
+        // Room Name Big Yellow Watermark
+        if (room && room.trim() !== '') {
+          ctx.save();
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          
+          // Calculate font size responsive to image width (e.g. 5.5% of width, bounded between 24 and 52)
+          const fontSize = Math.max(24, Math.min(52, Math.round(canvas.width * 0.055)));
+          ctx.font = `bold ${fontSize}px "Inter", "Space Grotesk", "Helvetica Neue", sans-serif`;
+          
+          // Fill yellow
+          ctx.fillStyle = '#facc15'; // Yellow-400
+          
+          // Position: Bottom center, slightly above the metadata black overlay box (85px high)
+          const x = canvas.width / 2;
+          const y = canvas.height - boxHeight - 35;
+          
+          // Dark outline for contrast and perfect readability
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+          ctx.lineWidth = 5;
+          ctx.strokeText(room.toUpperCase(), x, y);
+          ctx.fillText(room.toUpperCase(), x, y);
+          ctx.restore();
+        }
+
         // Export as compressed jpeg
         resolve(canvas.toDataURL('image/jpeg', 0.7));
       };
     });
   };
+
+  // Synchronize watermarked selectedFiles based on rawFiles, roomName, selProjId, includeGps
+  useEffect(() => {
+    let isCurrent = true;
+    if (rawFiles.length === 0) {
+      setSelectedFiles([]);
+      return;
+    }
+
+    const activeProjectName = projects.find(p => p.id === selProjId)?.name || 'EBA Proyek';
+    const activeGps = getGpsForProject(selProjId);
+
+    const applyAllWatermarks = async () => {
+      const watermarked = await Promise.all(
+        rawFiles.map(b64 => processImageAndApplyWatermark(b64, activeProjectName, activeGps, roomName))
+      );
+      if (isCurrent) {
+        setSelectedFiles(watermarked);
+      }
+    };
+
+    applyAllWatermarks();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [rawFiles, roomName, selProjId, includeGps, projects]);
 
   // Multi file selector
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -371,8 +425,6 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
     if (!files || files.length === 0) return;
 
     setCapturing(true);
-    const activeProjectName = projects.find(p => p.id === selProjId)?.name || 'EBA Proyek';
-    const activeGps = getGpsForProject(selProjId);
 
     const base64Promises = Array.from(files).map((file) => {
       return new Promise<string>((resolve) => {
@@ -384,12 +436,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
     const base64s = await Promise.all(base64Promises);
     
-    // Watermark all selected files
-    const watermarkedBase64s = await Promise.all(
-      base64s.map(b64 => processImageAndApplyWatermark(b64, activeProjectName, activeGps))
-    );
-
-    setSelectedFiles((prev) => [...prev, ...watermarkedBase64s].slice(0, 5)); // max 5 photos
+    setRawFiles((prev) => [...prev, ...base64s].slice(0, 5)); // max 5 photos
     setCapturing(false);
   };
 
@@ -498,11 +545,14 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
           time,
           notes: selectedFiles.length > 1 ? `${notes} (${idx + 1}/${selectedFiles.length})` : notes,
           images: [fileB64],
-          gpsLocation: includeGps ? activeGps : undefined
+          gpsLocation: includeGps ? activeGps : undefined,
+          roomName: roomName.trim() || undefined
         };
         onAddOfflineItem('photo', singlePayload);
       });
       setNotes('');
+      setRoomName('');
+      setRawFiles([]);
       setSelectedFiles([]);
       alert(lang === 'id' ? 'Tersimpan dalam antrean upload offline! Foto akan terkirim setelah online.' : 'Saved in offline upload queue! Photos will sync once online.');
     } else {
@@ -531,7 +581,8 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
             notes: selectedFiles.length > 1 ? `${notes} (${idx + 1}/${selectedFiles.length})` : notes,
             images: [fileB64],
             gpsLocation: includeGps ? activeGps : undefined,
-            driveUrls: []
+            driveUrls: [],
+            roomName: roomName.trim() || undefined
           };
 
           const filename = `EBA_${activeProjectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${date}_${time.replace(/:/g, '-')}_${idx + 1}.jpg`;
@@ -551,7 +602,8 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
                   date,
                   time,
                   notes: singlePayload.notes,
-                  gpsLocation: singlePayload.gpsLocation
+                  gpsLocation: singlePayload.gpsLocation,
+                  roomName: singlePayload.roomName
                 }
               );
               if (uploadRes && uploadRes.webViewLink) {
@@ -578,6 +630,8 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
         }
 
         setNotes('');
+        setRoomName('');
+        setRawFiles([]);
         setSelectedFiles([]);
       } catch (err: any) {
         if (role === 'admin') {
@@ -1352,11 +1406,11 @@ function exportDatabaseToSheets(db, folder) {
         </div>
 
         <form onSubmit={handleUploadSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             
             {/* Project dropdown selection */}
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">
+              <label className="text-[10px] font-bold text-gray-400 dark:text-gray-550 uppercase tracking-widest">
                 {lang === 'id' ? 'Nama Proyek' : 'Project Assignment'}
               </label>
               <select
@@ -1368,6 +1422,20 @@ function exportDatabaseToSheets(db, folder) {
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Room Name Input */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-gray-400 dark:text-gray-550 uppercase tracking-widest">
+                {lang === 'id' ? 'Nama Ruangan' : 'Room/Space Name'}
+              </label>
+              <input
+                type="text"
+                value={roomName}
+                onChange={(e) => setRoomName(e.target.value)}
+                placeholder={lang === 'id' ? 'e.g. POMPA, Toilet, Lantai 1' : 'e.g. Pump Room, Toilet, 1st Floor'}
+                className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl"
+              />
             </div>
 
             {/* GPS inclusion toggle */}
@@ -1723,9 +1791,19 @@ function exportDatabaseToSheets(db, folder) {
                   referrerPolicy="no-referrer"
                 />
                 
+                {/* Room Name Badge */}
+                {ph.roomName && (
+                  <div className="absolute bottom-1.5 left-1.5 bg-yellow-400 text-black font-sans text-[8px] font-extrabold px-1.5 py-0.5 rounded shadow z-10 uppercase tracking-wide">
+                    {ph.roomName}
+                  </div>
+                )}
+                
                 {/* Subtle hover/touch info badge overlay */}
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2 text-[9px] text-white">
-                  <p className="font-bold truncate">{ph.projectName}</p>
+                  <p className="font-bold truncate">
+                    {ph.projectName}
+                    {ph.roomName && ` - ${ph.roomName.toUpperCase()}`}
+                  </p>
                   <p className="font-mono text-gray-300 mt-0.5">{ph.date}</p>
                 </div>
 
@@ -1771,7 +1849,10 @@ function exportDatabaseToSheets(db, folder) {
             {/* Header - Pinned at the top */}
             <div className="p-4 border-b border-gray-100 dark:border-gray-750 flex items-center justify-between shrink-0">
               <div>
-                <h4 className="font-sans font-bold text-xs text-orange-600 dark:text-orange-400 uppercase tracking-wider">{activeLightboxPhoto.projectName}</h4>
+                <h4 className="font-sans font-bold text-xs text-orange-600 dark:text-orange-400 uppercase tracking-wider">
+                  {activeLightboxPhoto.projectName}
+                  {activeLightboxPhoto.roomName && ` - ${activeLightboxPhoto.roomName.toUpperCase()}`}
+                </h4>
                 <p className="text-[10px] text-gray-450 font-mono mt-0.5">Dokumentasi Lapangan | {activeLightboxPhoto.date} {activeLightboxPhoto.time}</p>
               </div>
               <button
@@ -1809,6 +1890,15 @@ function exportDatabaseToSheets(db, folder) {
 
               {/* Description and actions */}
               <div className="p-5 space-y-4">
+                {activeLightboxPhoto.roomName && (
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] font-black text-gray-400 dark:text-gray-550 uppercase tracking-widest">{lang === 'id' ? 'Nama Ruangan' : 'Room Name'}</span>
+                    <p className="text-xs font-bold text-yellow-700 dark:text-yellow-400 bg-yellow-50/50 dark:bg-yellow-950/10 px-3 py-2 rounded-xl border border-yellow-100 dark:border-yellow-900/10 uppercase tracking-wide">
+                      {activeLightboxPhoto.roomName}
+                    </p>
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   <span className="text-[9px] font-black text-gray-400 dark:text-gray-550 uppercase tracking-widest">{lang === 'id' ? 'Catatan Lapangan' : 'Field Notes'}</span>
                   <p className="text-xs text-gray-700 dark:text-gray-250 bg-gray-50 dark:bg-gray-900/40 p-3 rounded-xl border border-gray-100 dark:border-gray-850 leading-relaxed">
@@ -1940,6 +2030,18 @@ function exportDatabaseToSheets(db, folder) {
                     className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl"
                   />
                 </div>
+              </div>
+
+              {/* Room Name Input */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">{lang === 'id' ? 'Nama Ruangan' : 'Room/Space Name'}</label>
+                <input
+                  type="text"
+                  value={editingPhoto.roomName || ''}
+                  onChange={(e) => setEditingPhoto({ ...editingPhoto, roomName: e.target.value })}
+                  placeholder={lang === 'id' ? 'e.g. POMPA, Toilet, Lantai 1' : 'e.g. Pump Room, Toilet, 1st Floor'}
+                  className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl"
+                />
               </div>
 
               {/* Notes */}

@@ -35,7 +35,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   lang,
   role
 }) => {
-  const t = translations[lang];
+  const t = translations[lang] || translations['id'];
   const [showAddProj, setShowAddProj] = useState(false);
   const [selectedProjId, setSelectedProjId] = useState<string | null>(projects[0]?.id || null);
   
