@@ -315,11 +315,68 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
     file.setDescription("Uploaded from EBA Contractor Platform by " + (data.userRole || "unknown"));
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
+    var webViewLink = file.getUrl();
     var result = {
       success: true,
       fileId: file.getId(),
-      webViewLink: file.getUrl()
+      webViewLink: webViewLink
     };
+    
+    // --- AUTOMATIC PHOTO METADATA SYNC INTO EBA_PROJECT_DB.JSON ---
+    if (data.photoMeta) {
+      try {
+        var fileName = "eba_project_db.json";
+        var files = folder.getFilesByName(fileName);
+        var dbFile;
+        var db = null;
+        if (files.hasNext()) {
+          dbFile = files.next();
+          var content = dbFile.getBlob().getDataAsString();
+          db = JSON.parse(content);
+        }
+        
+        if (db) {
+          if (!db.photos) {
+            db.photos = [];
+          }
+          
+          // Check if photo is already in the list to avoid duplicate
+          var exists = false;
+          for (var i = 0; i < db.photos.length; i++) {
+            if (db.photos[i].id === data.photoMeta.id) {
+              exists = true;
+              break;
+            }
+          }
+          
+          if (!exists) {
+            var newPhoto = {
+              id: data.photoMeta.id,
+              projectId: data.photoMeta.projectId || "",
+              projectName: data.photoMeta.projectName || "",
+              date: data.photoMeta.date || "",
+              time: data.photoMeta.time || "",
+              notes: data.photoMeta.notes || "",
+              images: [webViewLink],
+              gpsLocation: data.photoMeta.gpsLocation || "",
+              watermarked: true,
+              driveUrls: [webViewLink]
+            };
+            db.photos.unshift(newPhoto);
+            db.lastUpdated = Date.now();
+            
+            dbFile.setContent(JSON.stringify(db, null, 2));
+            
+            // Sync with spreadsheets automatically too!
+            if (typeof exportDatabaseToSheets === 'function') {
+              exportDatabaseToSheets(db, folder);
+            }
+          }
+        }
+      } catch (dbSyncError) {
+        console.error("Failed to automatically append photo to db JSON: " + dbSyncError.toString());
+      }
+    }
     
     return ContentService.createTextOutput(JSON.stringify(result))
       .setMimeType(ContentService.MimeType.JSON);

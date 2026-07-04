@@ -439,7 +439,21 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
         try {
           let uploadRes;
           if (usingGas) {
-            uploadRes = await uploadPhotoViaGas(gasUrl, b64, filename, role);
+            uploadRes = await uploadPhotoViaGas(
+              gasUrl,
+              b64,
+              filename,
+              role,
+              {
+                id: ph.id,
+                projectId: ph.projectId,
+                projectName: ph.projectName,
+                date: ph.date,
+                time: ph.time,
+                notes: ph.notes,
+                gpsLocation: ph.gpsLocation
+              }
+            );
           } else {
             uploadRes = await uploadPhotoToDrive(gdToken!, b64, filename, folderId);
           }
@@ -514,7 +528,9 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
         for (let idx = 0; idx < selectedFiles.length; idx++) {
           const fileB64 = selectedFiles[idx];
+          const photoId = `ph_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
           const singlePayload: any = {
+            id: photoId,
             projectId: selProjId,
             projectName: activeProjectName,
             date,
@@ -530,7 +546,21 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
           if (usingGas && autoUpload) {
             try {
               setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${selectedFiles.length} ke Google Drive (Cloud)...` : `Uploading photo ${idx + 1}/${selectedFiles.length} to Google Drive (Cloud)...`);
-              const uploadRes = await uploadPhotoViaGas(gasUrl, fileB64, filename, role);
+              const uploadRes = await uploadPhotoViaGas(
+                gasUrl,
+                fileB64,
+                filename,
+                role,
+                {
+                  id: photoId,
+                  projectId: selProjId,
+                  projectName: activeProjectName,
+                  date,
+                  time,
+                  notes: singlePayload.notes,
+                  gpsLocation: singlePayload.gpsLocation
+                }
+              );
               if (uploadRes && uploadRes.webViewLink) {
                 singlePayload.driveUrls = [uploadRes.webViewLink];
               }
@@ -681,11 +711,68 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
     file.setDescription("Uploaded from EBA Contractor Platform by " + (data.userRole || "unknown"));
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
+    var webViewLink = file.getUrl();
     var result = {
       success: true,
       fileId: file.getId(),
-      webViewLink: file.getUrl()
+      webViewLink: webViewLink
     };
+    
+    // --- AUTOMATIC PHOTO METADATA SYNC INTO EBA_PROJECT_DB.JSON ---
+    if (data.photoMeta) {
+      try {
+        var fileName = "eba_project_db.json";
+        var files = folder.getFilesByName(fileName);
+        var dbFile;
+        var db = null;
+        if (files.hasNext()) {
+          dbFile = files.next();
+          var content = dbFile.getBlob().getDataAsString();
+          db = JSON.parse(content);
+        }
+        
+        if (db) {
+          if (!db.photos) {
+            db.photos = [];
+          }
+          
+          // Check if photo is already in the list to avoid duplicate
+          var exists = false;
+          for (var i = 0; i < db.photos.length; i++) {
+            if (db.photos[i].id === data.photoMeta.id) {
+              exists = true;
+              break;
+            }
+          }
+          
+          if (!exists) {
+            var newPhoto = {
+              id: data.photoMeta.id,
+              projectId: data.photoMeta.projectId || "",
+              projectName: data.photoMeta.projectName || "",
+              date: data.photoMeta.date || "",
+              time: data.photoMeta.time || "",
+              notes: data.photoMeta.notes || "",
+              images: [webViewLink],
+              gpsLocation: data.photoMeta.gpsLocation || "",
+              watermarked: true,
+              driveUrls: [webViewLink]
+            };
+            db.photos.unshift(newPhoto);
+            db.lastUpdated = Date.now();
+            
+            dbFile.setContent(JSON.stringify(db, null, 2));
+            
+            // Sync with spreadsheets automatically too!
+            if (typeof exportDatabaseToSheets === 'function') {
+              exportDatabaseToSheets(db, folder);
+            }
+          }
+        }
+      } catch (dbSyncError) {
+        console.error("Failed to automatically append photo to db JSON: " + dbSyncError.toString());
+      }
+    }
     
     return ContentService.createTextOutput(JSON.stringify(result))
       .setMimeType(ContentService.MimeType.JSON);

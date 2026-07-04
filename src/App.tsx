@@ -272,10 +272,10 @@ export default function App() {
     saveToLocalStorage('EBA_MATERIALS', updated);
   };
 
-  const handleAddPhoto = (newPhoto: Omit<ProgressPhoto, 'id' | 'watermarked'>) => {
+  const handleAddPhoto = (newPhoto: Omit<ProgressPhoto, 'id' | 'watermarked'> & { id?: string }) => {
     const photo: ProgressPhoto = {
       ...newPhoto,
-      id: `ph_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+      id: newPhoto.id || `ph_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       watermarked: true
     };
     setPhotos(prev => {

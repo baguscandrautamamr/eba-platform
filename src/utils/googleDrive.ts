@@ -224,13 +224,23 @@ export const uploadPhotoViaGas = async (
   gasUrl: string,
   base64Str: string,
   filename: string,
-  userRole: string
+  userRole: string,
+  photoMeta?: {
+    id: string;
+    projectId: string;
+    projectName: string;
+    date: string;
+    time: string;
+    notes: string;
+    gpsLocation?: string;
+  }
 ): Promise<{ id: string; webViewLink?: string }> => {
   try {
     const payload = {
       image: base64Str,
       filename: filename,
-      userRole: userRole
+      userRole: userRole,
+      photoMeta: photoMeta
     };
 
     // We send payload as text/plain to avoid preflight CORS preflight requests 
