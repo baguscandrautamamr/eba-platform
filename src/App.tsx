@@ -52,7 +52,7 @@ import {
   MoreHorizontal,
   X
 } from 'lucide-react';
-import { registerAutoSync, triggerAutoSync } from './utils/autoSync';
+import { registerAutoSync, triggerAutoSync, cleanPhotosForSync } from './utils/autoSync';
 
 export default function App() {
   // System State
@@ -496,7 +496,7 @@ export default function App() {
       kasbons,
       overtimes,
       otherExpenses: otherExpenses,
-      photos
+      photos: cleanPhotosForSync(photos) // strip base64, ganti dengan driveUrl
     };
   };
 
