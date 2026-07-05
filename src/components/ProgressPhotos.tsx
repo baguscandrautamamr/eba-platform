@@ -26,6 +26,8 @@ interface ProgressPhotosProps {
   isOffline: boolean;
   offlineQueue: any[];
   onAddOfflineItem: (type: 'photo', payload: any) => void;
+  onRefreshProjects?: () => Promise<boolean>;
+  isSyncingProjects?: boolean;
   lang: Language;
   role: UserRole;
 }
@@ -39,6 +41,8 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
   isOffline,
   offlineQueue,
   onAddOfflineItem,
+  onRefreshProjects,
+  isSyncingProjects = false,
   lang,
   role
 }) => {
@@ -1431,8 +1435,20 @@ function exportDatabaseToSheets(db, folder) {
             
             {/* Project dropdown selection */}
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-gray-400 dark:text-gray-550 uppercase tracking-widest">
-                {lang === 'id' ? 'Nama Proyek' : 'Project Assignment'}
+              <label className="text-[10px] font-bold text-gray-400 dark:text-gray-550 uppercase tracking-widest flex items-center justify-between">
+                <span>{lang === 'id' ? 'Nama Proyek' : 'Project Assignment'}</span>
+                {role === 'user' && onRefreshProjects && (
+                  <button
+                    type="button"
+                    onClick={() => onRefreshProjects()}
+                    disabled={isSyncingProjects}
+                    className="text-orange-600 hover:text-orange-800 flex items-center gap-1 normal-case font-bold text-[9px] disabled:opacity-50"
+                    title={lang === 'id' ? 'Sinkronkan daftar proyek terbaru dari Admin' : 'Sync latest project list from Admin'}
+                  >
+                    <RefreshCw size={10} className={isSyncingProjects ? 'animate-spin' : ''} />
+                    {lang === 'id' ? 'Sinkronkan' : 'Sync'}
+                  </button>
+                )}
               </label>
               <select
                 value={selProjId}
