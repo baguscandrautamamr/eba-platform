@@ -9,7 +9,6 @@ import {
   Overtime, 
   OtherExpense, 
   ProgressPhoto, 
-  DeploymentLog, 
   Theme, 
   Language, 
   UserRole,
@@ -24,7 +23,6 @@ import {
   initialKasbons, 
   initialOvertimes, 
   initialOtherExpenses, 
-  initialDeploymentLogs, 
   initialProgressPhotos 
 } from './data/initialData';
 import { Header } from './components/Header';
@@ -35,7 +33,6 @@ import { ProgressPhotos } from './components/ProgressPhotos';
 import { AttendanceAndStaff } from './components/AttendanceAndStaff';
 import { OtherExpenses } from './components/OtherExpenses';
 import { ReportShare } from './components/ReportShare';
-import { DeploymentDashboard } from './components/DeploymentDashboard';
 import { 
   LayoutDashboard, 
   FolderGit2, 
@@ -44,7 +41,6 @@ import {
   Users, 
   FileCheck, 
   Share2, 
-  Terminal, 
   CheckCircle2, 
   LockKeyhole,
   Smartphone,
@@ -83,7 +79,6 @@ export default function App() {
   const [overtimes, setOvertimes] = useState<Overtime[]>(initialOvertimes);
   const [otherExpenses, setOtherExpenses] = useState<OtherExpense[]>(initialOtherExpenses);
   const [photos, setPhotos] = useState<ProgressPhoto[]>(initialProgressPhotos);
-  const [deploymentLogs, setDeploymentLogs] = useState<DeploymentLog[]>(initialDeploymentLogs);
   
   // Offline Sync Queue state
   const [offlineQueue, setOfflineQueue] = useState<UploadQueueItem[]>([]);
@@ -515,27 +510,6 @@ export default function App() {
     };
   };
 
-  // DevOps simulated logs modifiers
-  const handleAddDeploymentLog = (log: DeploymentLog) => {
-    setDeploymentLogs([log, ...deploymentLogs]);
-  };
-
-  const handleRollbackDeployment = (targetHash: string) => {
-    const target = deploymentLogs.find(l => l.commitHash === targetHash);
-    if (!target) return;
-
-    const rollbackLog: DeploymentLog = {
-      id: `dep_${Date.now()}`,
-      commitHash: 'rollback',
-      commitMessage: `Manual Rollback: Reverted production to stable commit [${targetHash}]`,
-      branch: 'main',
-      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      status: 'rolled_back',
-      vercelUrl: 'eba-project-94112.vercel.app'
-    };
-    setDeploymentLogs([rollbackLog, ...deploymentLogs]);
-  };
-
   // Nav Links List
   const tabs = [
     { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard },
@@ -544,8 +518,7 @@ export default function App() {
     { id: 'photos', label: t.progressPhotos, icon: Camera },
     { id: 'attendance', label: t.hrAttendance, icon: Users },
     { id: 'expenses', label: t.otherExpenses, icon: FileCheck },
-    { id: 'report', label: t.dailyReport, icon: Share2 },
-    { id: 'devops', label: t.deployments, icon: Terminal }
+    { id: 'report', label: t.dailyReport, icon: Share2 }
   ];
 
   // Filter tabs for User and Admin
@@ -744,14 +717,6 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'devops' && role === 'admin' && (
-            <DeploymentDashboard 
-              logs={deploymentLogs}
-              onAddLog={handleAddDeploymentLog}
-              onRollback={handleRollbackDeployment}
-              lang={lang}
-            />
-          )}
         </main>
       </div>
 
