@@ -13,6 +13,8 @@ interface AttendanceAndStaffProps {
   onUpdateEmployee?: (emp: Employee) => void;
   onDeleteEmployee?: (id: string) => void;
   onLogAttendance: (att: Omit<Attendance, 'id'>[]) => void;
+  onUpdateAttendance?: (att: Attendance) => void;
+  onDeleteAttendance?: (id: string) => void;
   onAddKasbon: (kas: Omit<Kasbon, 'id'>) => void;
   onUpdateKasbon?: (kas: Kasbon) => void;
   onDeleteKasbon?: (id: string) => void;
@@ -33,6 +35,8 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   onUpdateEmployee,
   onDeleteEmployee,
   onLogAttendance,
+  onUpdateAttendance,
+  onDeleteAttendance,
   onAddKasbon,
   onUpdateKasbon,
   onDeleteKasbon,
@@ -50,6 +54,11 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   // Edit & Delete Employee states
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [deleteConfirmEmpId, setDeleteConfirmEmpId] = useState<string | null>(null);
+
+  // Riwayat Absensi: state untuk edit/hapus record yang sudah dikunci
+  const [editingAttendance, setEditingAttendance] = useState<Attendance | null>(null);
+  const [deleteConfirmAttId, setDeleteConfirmAttId] = useState<string | null>(null);
+  const [historyDateFilter, setHistoryDateFilter] = useState('');
 
   // Edit & Delete Kasbon states
   const [editingKasbon, setEditingKasbon] = useState<Kasbon | null>(null);
@@ -654,6 +663,225 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
               </button>
             </div>
           </form>
+
+          {/* ===================================================== */}
+          {/* RIWAYAT ABSENSI — preview data tersimpan + edit/hapus  */}
+          {/* ===================================================== */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm p-5 space-y-3" id="attendance-history">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h3 className="font-sans font-bold text-xs text-gray-900 dark:text-white uppercase tracking-widest">
+                  {lang === 'id' ? 'Riwayat Absensi Tersimpan' : 'Saved Attendance History'}
+                </h3>
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  {lang === 'id' ? 'Data yang sudah dikunci — bisa diedit atau dihapus jika ada kesalahan input' : 'Locked data — can be edited or deleted if there was an input error'}
+                </p>
+              </div>
+              <input
+                type="date"
+                value={historyDateFilter}
+                onChange={(e) => setHistoryDateFilter(e.target.value)}
+                className="px-3 py-1.5 text-xs border rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              />
+              {historyDateFilter && (
+                <button
+                  type="button"
+                  onClick={() => setHistoryDateFilter('')}
+                  className="text-[10px] text-gray-400 hover:text-gray-600 underline"
+                >
+                  {lang === 'id' ? 'Tampilkan semua' : 'Show all'}
+                </button>
+              )}
+            </div>
+
+            {(() => {
+              const historyRecords = attendance
+                .filter(a => !historyDateFilter || a.date === historyDateFilter)
+                .sort((a, b) => b.date.localeCompare(a.date));
+
+              if (historyRecords.length === 0) {
+                return (
+                  <div className="py-8 text-center text-gray-400 text-xs">
+                    {lang === 'id' ? 'Belum ada data absensi tersimpan.' : 'No saved attendance data yet.'}
+                  </div>
+                );
+              }
+
+              // Group by date
+              const grouped = historyRecords.reduce((acc, rec) => {
+                if (!acc[rec.date]) acc[rec.date] = [];
+                acc[rec.date].push(rec);
+                return acc;
+              }, {} as Record<string, Attendance[]>);
+
+              const statusColor = (st: string) =>
+                st === 'hadir' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400' :
+                st === 'absen' ? 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400' :
+                st === 'izin' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400' :
+                st === 'sakit' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400' :
+                'bg-slate-100 text-slate-700 dark:bg-slate-800/40 dark:text-slate-400';
+
+              const statusLabel = (st: string) =>
+                st === 'hadir' ? (lang === 'id' ? 'HADIR' : 'PRESENT') :
+                st === 'absen' ? (lang === 'id' ? 'ALPHA' : 'ABSENT') :
+                st === 'izin' ? 'IZIN' :
+                st === 'sakit' ? 'SAKIT' :
+                (lang === 'id' ? 'LIBUR' : 'OFF');
+
+              return Object.keys(grouped).sort((a, b) => b.localeCompare(a)).map(date => (
+                <div key={date} className="border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden">
+                  <div className="bg-gray-50 dark:bg-gray-900/40 px-3 py-2 flex items-center gap-2">
+                    <Calendar size={12} className="text-gray-400" />
+                    <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300">{date}</span>
+                    <span className="text-[10px] text-gray-400">({grouped[date].length} {lang === 'id' ? 'pegawai' : 'workers'})</span>
+                  </div>
+                  <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {grouped[date].map(rec => (
+                      <div key={rec.id} className="px-3 py-2 flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0 flex-1">
+                          <span className="font-bold text-gray-900 dark:text-white">{rec.employeeName}</span>
+                          {rec.projectName && (
+                            <span className="ml-2 text-[9px] font-bold text-orange-600 bg-orange-50 dark:bg-orange-950/20 px-1.5 py-0.5 rounded">
+                              {rec.projectName}
+                            </span>
+                          )}
+                          {rec.note && <p className="text-[10px] text-gray-400 truncate">{rec.note}</p>}
+                        </div>
+                        <span className={`text-[9px] font-bold px-2 py-1 rounded-lg uppercase whitespace-nowrap ${statusColor(rec.status)}`}>
+                          {statusLabel(rec.status)}
+                        </span>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setEditingAttendance(rec)}
+                            className="text-orange-600 hover:text-orange-800 p-1.5 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-950/20"
+                            title={lang === 'id' ? 'Edit' : 'Edit'}
+                          >
+                            <Edit2 size={12} />
+                          </button>
+                          {deleteConfirmAttId === rec.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => { onDeleteAttendance?.(rec.id); setDeleteConfirmAttId(null); }}
+                                className="text-[9px] font-bold text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded-lg"
+                              >
+                                {lang === 'id' ? 'Ya' : 'Yes'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteConfirmAttId(null)}
+                                className="text-[9px] font-bold text-gray-500 px-2 py-1"
+                              >
+                                {lang === 'id' ? 'Batal' : 'Cancel'}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmAttId(rec.id)}
+                              className="text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20"
+                              title={lang === 'id' ? 'Hapus' : 'Delete'}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+
+          {/* Modal Edit Riwayat Absensi */}
+          {editingAttendance && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditingAttendance(null)}>
+              <div
+                className="bg-white dark:bg-gray-800 rounded-2xl p-5 w-full max-w-sm space-y-4 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 className="font-sans font-bold text-sm text-gray-900 dark:text-white">
+                  {lang === 'id' ? 'Edit Absensi' : 'Edit Attendance'}
+                </h3>
+                <p className="text-xs text-gray-400 -mt-2">{editingAttendance.employeeName} — {editingAttendance.date}</p>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-gray-400 uppercase">{lang === 'id' ? 'Status Kehadiran' : 'Attendance Status'}</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(['hadir', 'absen', 'izin', 'sakit', 'libur'] as const).map((st) => (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => setEditingAttendance({ ...editingAttendance, status: st })}
+                        className={`px-2.5 py-1.5 text-[10px] font-bold rounded-lg uppercase transition-colors ${
+                          editingAttendance.status === st
+                            ? st === 'hadir' ? 'bg-emerald-500 text-white' :
+                              st === 'absen' ? 'bg-red-500 text-white' :
+                              st === 'izin' ? 'bg-amber-500 text-white' :
+                              st === 'sakit' ? 'bg-blue-500 text-white' :
+                              'bg-slate-500 text-white'
+                            : 'bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400'
+                        }`}
+                      >
+                        {st === 'hadir' ? 'HADIR' : st === 'absen' ? 'ALPHA' : st === 'izin' ? 'IZIN' : st === 'sakit' ? 'SAKIT' : 'LIBUR'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {projects.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-gray-400 uppercase">{lang === 'id' ? 'Proyek' : 'Project'}</label>
+                    <select
+                      value={editingAttendance.projectId || ''}
+                      onChange={(e) => {
+                        const proj = projects.find(p => p.id === e.target.value);
+                        setEditingAttendance({ ...editingAttendance, projectId: proj?.id || '', projectName: proj?.name || '' });
+                      }}
+                      className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                    >
+                      {projects.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-gray-400 uppercase">{lang === 'id' ? 'Catatan' : 'Note'}</label>
+                  <input
+                    type="text"
+                    value={editingAttendance.note || ''}
+                    onChange={(e) => setEditingAttendance({ ...editingAttendance, note: e.target.value })}
+                    placeholder={lang === 'id' ? 'Sebab (izin/sakit)...' : 'Reason...'}
+                    className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <button
+                    type="button"
+                    onClick={() => setEditingAttendance(null)}
+                    className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  >
+                    {lang === 'id' ? 'Batal' : 'Cancel'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateAttendance?.(editingAttendance);
+                      setEditingAttendance(null);
+                    }}
+                    className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl"
+                  >
+                    {lang === 'id' ? 'Simpan' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
