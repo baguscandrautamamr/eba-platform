@@ -55,6 +55,10 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [deleteConfirmEmpId, setDeleteConfirmEmpId] = useState<string | null>(null);
 
+  // Modal khusus edit Tarif Lembur per jam (terpisah dari edit data pegawai)
+  const [editingRateEmp, setEditingRateEmp] = useState<Employee | null>(null);
+  const [editingRateValue, setEditingRateValue] = useState<string>('');
+
   // Riwayat Absensi: state untuk edit/hapus record yang sudah dikunci
   const [editingAttendance, setEditingAttendance] = useState<Attendance | null>(null);
   const [deleteConfirmAttId, setDeleteConfirmAttId] = useState<string | null>(null);
@@ -79,6 +83,16 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
     emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     emp.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  /**
+   * Tarif lembur per jam untuk seorang pegawai:
+   * - Kalau ada customOvertimeRate (di-set manual lewat tombol Edit di kartu Tarif Lembur), pakai itu.
+   * - Kalau tidak, hitung otomatis dari gaji harian ÷ 8 jam kerja normal.
+   */
+  const getOvertimeRate = (emp: Employee): number => {
+    if (emp.customOvertimeRate && emp.customOvertimeRate > 0) return emp.customOvertimeRate;
+    return Math.round(emp.dailySalary / 8);
+  };
 
   const filteredOvertimes = overtimes.filter(o => 
     o.employeeName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -153,7 +167,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   // New Overtime Form
   const [ovEmpId, setOvEmpId] = useState(employees[0]?.id || '');
   const [ovHours, setOvHours] = useState(2);
-  const [ovRate, setOvRate] = useState(formatNumberInput(String(Math.round((employees[0]?.dailySalary || 200000) / 8))));
+  const [ovRate, setOvRate] = useState(formatNumberInput(String(employees[0] ? getOvertimeRate(employees[0]) : 25000)));
   const [ovNote, setOvNote] = useState('');
 
   // Payroll Slip Generator state
@@ -224,7 +238,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
           const proj = projects.find(p => p.id === empState.projectId);
           // Tarif lembur per jam mengikuti gaji harian masing-masing pegawai
           // (gaji harian ÷ 8 jam kerja normal), bukan angka flat untuk semua orang.
-          const hourlyRate = Math.round(emp.dailySalary / 8);
+          const hourlyRate = getOvertimeRate(emp);
           onAddOvertime({
             employeeId: emp.id,
             employeeName: emp.name,
@@ -274,7 +288,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
     });
     setOvHours(2);
     const emp = employees.find(e => e.id === ovEmpId);
-    setOvRate(formatNumberInput(String(Math.round((emp?.dailySalary || 200000) / 8))));
+    if (emp) setOvRate(formatNumberInput(String(getOvertimeRate(emp))));
     setOvNote('');
     alert('Lembur berhasil dicatat!');
   };
@@ -679,7 +693,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                             />
                           </div>
                           {(() => {
-                            const rate = Math.round(emp.dailySalary / 8);
+                            const rate = getOvertimeRate(emp);
                             const hrs = inlineOvertimes[emp.id]?.hours || 0;
                             return (
                               <span className="text-[9px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
@@ -956,7 +970,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                       <span className="text-[10px] text-gray-500">{lang === 'id' ? 'jam' : 'hrs'}</span>
                       {(() => {
                         const emp = employees.find(e => e.id === editingAttendance.employeeId);
-                        const rate = emp ? Math.round(emp.dailySalary / 8) : 0;
+                        const rate = emp ? getOvertimeRate(emp) : 0;
                         const hrs = Number(editOvertimeHours) || 0;
                         return hrs > 0 ? (
                           <span className="text-[9px] text-gray-500 dark:text-gray-400">
@@ -998,7 +1012,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                       const emp = employees.find(e => e.id === editingAttendance.employeeId);
 
                       if (hrs > 0 && emp) {
-                        const hourlyRate = Math.round(emp.dailySalary / 8);
+                        const hourlyRate = getOvertimeRate(emp);
                         if (existingOv) {
                           onUpdateOvertime?.({
                             ...existingOv,
@@ -1062,7 +1076,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                     setOvEmpId(e.target.value);
                     // Auto-suggest tarif lembur sesuai gaji harian pegawai (bisa diedit manual)
                     const emp = employees.find(x => x.id === e.target.value);
-                    if (emp) setOvRate(formatNumberInput(String(Math.round(emp.dailySalary / 8))));
+                    if (emp) setOvRate(formatNumberInput(String(getOvertimeRate(emp))));
                   }}
                   className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
                 >
@@ -1138,7 +1152,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                   {lang === 'id' ? 'Tarif Lembur per Pegawai' : 'Overtime Rate per Employee'}
                 </h4>
                 <p className="text-[10px] text-gray-400 mt-0.5">
-                  {lang === 'id' ? 'Dihitung otomatis dari gaji harian ÷ 8 jam kerja normal' : 'Auto-calculated from daily wage ÷ 8 normal work hours'}
+                  {lang === 'id' ? 'Dihitung otomatis dari gaji harian ÷ 8 jam kerja normal — bisa diedit manual per pegawai' : 'Auto-calculated from daily wage ÷ 8 normal work hours — editable per employee'}
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[280px] overflow-y-auto pr-1">
@@ -1147,46 +1161,59 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                     <div className="min-w-0 flex-1">
                       <span className="font-bold text-gray-900 dark:text-white block truncate">{emp.name}</span>
                       <span className="text-[10px] text-gray-400">{emp.role}</span>
+                      {emp.customOvertimeRate && emp.customOvertimeRate > 0 && (
+                        <span className="text-[8px] text-purple-600 dark:text-purple-400 font-bold block">
+                          {lang === 'id' ? 'Tarif manual' : 'Manual rate'}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       {!isMandor && (
                         <span className="font-mono font-bold text-orange-600 dark:text-orange-400 whitespace-nowrap">
-                          {formatRupiah(Math.round(emp.dailySalary / 8))}/{lang === 'id' ? 'jam' : 'hr'}
+                          {formatRupiah(getOvertimeRate(emp))}/{lang === 'id' ? 'jam' : 'hr'}
                         </span>
                       )}
                       {!isMandor && (
                         <div className="flex items-center gap-1 pl-1.5 border-l border-gray-200 dark:border-gray-700">
                           <button
-                            onClick={() => setEditingEmployee(emp)}
+                            onClick={() => {
+                              setEditingRateEmp(emp);
+                              setEditingRateValue(String(getOvertimeRate(emp)));
+                            }}
                             className="text-orange-600 hover:text-orange-800 p-1 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-950/20 transition-colors"
-                            title={lang === 'id' ? 'Edit' : 'Edit'}
+                            title={lang === 'id' ? 'Edit Tarif Lembur' : 'Edit Overtime Rate'}
                           >
                             <Edit2 size={12} />
                           </button>
-                          {deleteConfirmEmpId === emp.id ? (
-                            <div className="flex items-center gap-1 bg-red-50 dark:bg-red-950/20 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900/30">
+                          {emp.customOvertimeRate && emp.customOvertimeRate > 0 && (
+                            deleteConfirmEmpId === emp.id ? (
+                              <div className="flex items-center gap-1 bg-red-50 dark:bg-red-950/20 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900/30">
+                                <button
+                                  onClick={() => {
+                                    if (onUpdateEmployee) onUpdateEmployee({ ...emp, customOvertimeRate: undefined });
+                                    setDeleteConfirmEmpId(null);
+                                  }}
+                                  className="text-[9px] font-extrabold text-red-650 hover:text-red-800 uppercase tracking-wider"
+                                >
+                                  {lang === 'id' ? 'Ya' : 'Yes'}
+                                </button>
+                                <span className="text-[9px] text-gray-400">|</span>
+                                <button
+                                  onClick={() => setDeleteConfirmEmpId(null)}
+                                  className="text-[9px] font-extrabold text-gray-550 hover:text-gray-750 dark:text-gray-400 dark:hover:text-gray-200 uppercase tracking-wider"
+                                >
+                                  {lang === 'id' ? 'Batal' : 'No'}
+                                </button>
+                              </div>
+                            ) : (
                               <button
-                                onClick={() => { if (onDeleteEmployee) onDeleteEmployee(emp.id); setDeleteConfirmEmpId(null); }}
-                                className="text-[9px] font-extrabold text-red-650 hover:text-red-800 uppercase tracking-wider"
+                                onClick={() => setDeleteConfirmEmpId(emp.id)}
+                                className="text-red-500 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                                title={lang === 'id' ? 'Reset ke tarif otomatis' : 'Reset to automatic rate'}
                               >
-                                {lang === 'id' ? 'Ya' : 'Yes'}
+                                <Trash2 size={12} />
                               </button>
-                              <span className="text-[9px] text-gray-400">|</span>
-                              <button
-                                onClick={() => setDeleteConfirmEmpId(null)}
-                                className="text-[9px] font-extrabold text-gray-550 hover:text-gray-750 dark:text-gray-400 dark:hover:text-gray-200 uppercase tracking-wider"
-                              >
-                                {lang === 'id' ? 'Batal' : 'No'}
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setDeleteConfirmEmpId(emp.id)}
-                              className="text-red-500 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
-                              title={lang === 'id' ? 'Hapus' : 'Delete'}
-                            >
-                              <Trash2 size={12} />
-                            </button>
+                            )
                           )}
                         </div>
                       )}
@@ -1648,6 +1675,78 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* Edit Tarif Lembur Modal — khusus edit tarif/jam, terpisah dari edit data pegawai */}
+      {editingRateEmp && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-150" onClick={() => setEditingRateEmp(null)}>
+          <div
+            className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-xl space-y-4 max-w-sm w-full animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div>
+              <h3 className="font-sans font-bold text-sm text-gray-900 dark:text-white">
+                {lang === 'id' ? 'Edit Tarif Lembur' : 'Edit Overtime Rate'}
+              </h3>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                {editingRateEmp.name} — {editingRateEmp.role}
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[9px] font-bold text-gray-400 uppercase">
+                {lang === 'id' ? 'Tarif per Jam (IDR)' : 'Hourly Rate (IDR)'}
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={formatNumberInput(editingRateValue)}
+                onFocus={(e) => e.currentTarget.select()}
+                onChange={(e) => setEditingRateValue(parseFormattedNumber(e.target.value).toString())}
+                className="w-full p-2.5 text-sm font-mono border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+              />
+              <p className="text-[9px] text-gray-400">
+                {lang === 'id'
+                  ? `Otomatis (dari gaji harian ÷ 8): ${formatRupiah(Math.round(editingRateEmp.dailySalary / 8))}/jam`
+                  : `Automatic (from daily wage ÷ 8): ${formatRupiah(Math.round(editingRateEmp.dailySalary / 8))}/hr`}
+              </p>
+            </div>
+
+            <div className="flex justify-between items-center pt-2 border-t border-gray-100 dark:border-gray-700">
+              <button
+                type="button"
+                onClick={() => {
+                  // Reset ke tarif otomatis (hapus override manual)
+                  if (onUpdateEmployee) onUpdateEmployee({ ...editingRateEmp, customOvertimeRate: undefined });
+                  setEditingRateEmp(null);
+                }}
+                className="text-[10px] font-bold text-gray-400 hover:text-gray-600 underline"
+              >
+                {lang === 'id' ? 'Pakai Otomatis' : 'Use Automatic'}
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingRateEmp(null)}
+                  className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  {lang === 'id' ? 'Batal' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newRate = parseFormattedNumber(editingRateValue);
+                    if (onUpdateEmployee) onUpdateEmployee({ ...editingRateEmp, customOvertimeRate: newRate > 0 ? newRate : undefined });
+                    setEditingRateEmp(null);
+                  }}
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl"
+                >
+                  {lang === 'id' ? 'Simpan' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
