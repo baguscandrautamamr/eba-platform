@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sun, Moon, Globe, Shield, RefreshCw, UserCheck, Wifi, WifiOff, Lock, Info, X } from 'lucide-react';
+import { Sun, Moon, Globe, Shield, RefreshCw, UserCheck, Wifi, WifiOff, Lock, Info, X, LogOut } from 'lucide-react';
 import { Language, Theme, UserRole, LanguagePack } from '../types';
 
 interface HeaderProps {
@@ -97,6 +97,11 @@ export const Header: React.FC<HeaderProps> = ({
     setPinError('');
   };
 
+  // Logout khusus Administrator: langsung kembali ke role User tanpa perlu PIN
+  const handleLogoutAdmin = () => {
+    setRole('user');
+  };
+
   const handleCancel = () => {
     if (isShaking) return;
     setShowPinModal(false);
@@ -148,19 +153,37 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Global Control Bars */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           
-          {/* User Role Selector */}
-          <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1" id="role-selector-container">
-            <UserCheck size={14} className="text-gray-400 dark:text-gray-500 mx-1.5" />
-            <select
-              value={role}
-              onChange={handleRoleChange}
-              className="bg-transparent text-xs font-medium text-gray-700 dark:text-gray-300 pr-2 border-none outline-none cursor-pointer focus:ring-0"
-              id="role-dropdown"
-            >
-              <option value="admin" className="dark:bg-gray-900">{t.admin}</option>
-              <option value="user" className="dark:bg-gray-900">{t.user}</option>
-            </select>
-          </div>
+          {/* User Role Selector / Admin Session Badge */}
+          {role === 'admin' ? (
+            <div className="flex items-center bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-lg px-1 py-1" id="admin-session-badge">
+              <div className="flex items-center gap-1.5 px-2">
+                <Shield size={13} className="text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">{t.admin}</span>
+              </div>
+              <button
+                onClick={handleLogoutAdmin}
+                className="flex items-center gap-1 px-2 py-1 ml-1 text-[10px] font-bold text-red-600 hover:text-white hover:bg-red-600 dark:text-red-400 rounded-md transition-colors"
+                id="admin-logout-btn"
+                title={lang === 'id' ? 'Keluar dari sesi Administrator' : 'Log out of Administrator session'}
+              >
+                <LogOut size={12} />
+                <span>{lang === 'id' ? 'Logout' : 'Logout'}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1" id="role-selector-container">
+              <UserCheck size={14} className="text-gray-400 dark:text-gray-500 mx-1.5" />
+              <select
+                value={role}
+                onChange={handleRoleChange}
+                className="bg-transparent text-xs font-medium text-gray-700 dark:text-gray-300 pr-2 border-none outline-none cursor-pointer focus:ring-0"
+                id="role-dropdown"
+              >
+                <option value="admin" className="dark:bg-gray-900">{t.admin}</option>
+                <option value="user" className="dark:bg-gray-900">{t.user}</option>
+              </select>
+            </div>
+          )}
 
           {/* Online/Offline Simulator Switch */}
           <button
