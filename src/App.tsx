@@ -88,6 +88,9 @@ export default function App() {
   // Offline Sync Queue state
   const [offlineQueue, setOfflineQueue] = useState<UploadQueueItem[]>([]);
 
+  // Auto-sync status indicator
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+
   const t = translations[lang] || translations['id'];
 
   // === AUTO-SYNC: Register data getter ===
@@ -97,7 +100,7 @@ export default function App() {
   }, [projects, materials, employees, attendance, kasbons, overtimes, otherExpenses, photos]);
 
   useEffect(() => {
-    registerAutoSync(() => stateRef.current);
+    registerAutoSync(() => stateRef.current, (status) => setSyncStatus(status));
   }, []);
 
   // Apply Theme class on root
@@ -562,6 +565,28 @@ export default function App() {
         encryptionKey={encryptionKey}
         setEncryptionKey={setEncryptionKey}
       />
+
+      {/* Auto-Sync Status Toast */}
+      {syncStatus !== 'idle' && (
+        <div className={`fixed top-20 right-4 z-50 px-4 py-2.5 rounded-xl shadow-lg text-sm font-semibold flex items-center gap-2 transition-all ${
+          syncStatus === 'syncing' ? 'bg-amber-500 text-white' :
+          syncStatus === 'success' ? 'bg-green-600 text-white' :
+          'bg-red-600 text-white'
+        }`}>
+          {syncStatus === 'syncing' && (
+            <>
+              <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              {lang === 'id' ? 'Menyinkronkan ke Cloud...' : 'Syncing to Cloud...'}
+            </>
+          )}
+          {syncStatus === 'success' && (
+            <>✓ {lang === 'id' ? 'Tersinkron ke Cloud' : 'Synced to Cloud'}</>
+          )}
+          {syncStatus === 'error' && (
+            <>✗ {lang === 'id' ? 'Gagal sync — cek koneksi' : 'Sync failed — check connection'}</>
+          )}
+        </div>
+      )}
 
       {/* Main Body */}
       <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col md:flex-row gap-6 pb-24 md:pb-6" id="eba-body">
