@@ -361,5 +361,30 @@ export const syncDatabaseViaGas = async (
   return data;
 };
 
+/**
+ * Trigger export data ke Google Sheets secara terpisah dari sync_db.
+ * Dipakai untuk tombol "Export ke Sheets" manual — supaya sync harian
+ * (sync_db) tetap cepat, dan Sheets diupdate hanya saat diminta.
+ */
+export const exportToSheetsViaGas = async (gasUrl: string): Promise<any> => {
+  const response = await fetch(gasUrl, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'export_sheets' }),
+    headers: {
+      'Content-Type': 'text/plain;charset=utf-8'
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`GAS Server responded with status: ${response.status}`);
+  }
+
+  const data = await response.json();
+  if (!data || !data.success) {
+    throw new Error(data?.error || 'Gagal export ke Sheets');
+  }
+
+  return data;
+};
 
 
