@@ -84,7 +84,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
 
   // Attendance Form
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
-  const [dailyPresence, setDailyPresence] = useState<Record<string, { status: 'hadir' | 'absen' | 'izin' | 'sakit'; note: string; projectId: string }>>(
+  const [dailyPresence, setDailyPresence] = useState<Record<string, { status: 'hadir' | 'absen' | 'izin' | 'sakit' | 'libur'; note: string; projectId: string }>>(
     employees.reduce((acc, emp) => ({
       ...acc,
       [emp.id]: { status: 'hadir', note: '', projectId: projects[0]?.id || '' }
@@ -531,7 +531,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                         <div className="flex flex-wrap items-center gap-2">
                           {/* Attendance status radio triggers */}
                           <div className="flex bg-gray-100 dark:bg-gray-900 rounded-lg p-1 text-[10px] font-bold">
-                            {(['hadir', 'absen', 'izin', 'sakit'] as const).map((st) => (
+                            {(['hadir', 'absen', 'izin', 'sakit', 'libur'] as const).map((st) => (
                               <button
                                 key={st}
                                 type="button"
@@ -544,14 +544,16 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                                     ? st === 'hadir' ? 'bg-emerald-500 text-white shadow-sm' :
                                       st === 'absen' ? 'bg-red-500 text-white shadow-sm' :
                                       st === 'izin' ? 'bg-amber-500 text-white shadow-sm' :
-                                      'bg-blue-500 text-white shadow-sm'
+                                      st === 'sakit' ? 'bg-blue-500 text-white shadow-sm' :
+                                      'bg-slate-500 text-white shadow-sm'
                                     : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                                 }`}
                               >
                                 {st === 'hadir' ? (lang === 'id' ? 'HADIR' : 'PRES') :
                                  st === 'absen' ? (lang === 'id' ? 'ALPHA' : 'ABS') :
                                  st === 'izin' ? (lang === 'id' ? 'IZIN' : 'EXC') :
-                                 (lang === 'id' ? 'SAKIT' : 'SICK')}
+                                 st === 'sakit' ? (lang === 'id' ? 'SAKIT' : 'SICK') :
+                                 (lang === 'id' ? 'LIBUR' : 'OFF')}
                               </button>
                             ))}
                           </div>
@@ -568,29 +570,31 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                             className="px-2.5 py-1 text-[10px] border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700 focus:outline-none"
                           />
 
-                          {/* Overtime toggle button */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const isEnabled = inlineOvertimes[emp.id]?.enabled;
-                              setInlineOvertimes({
-                                ...inlineOvertimes,
-                                [emp.id]: {
-                                  enabled: !isEnabled,
-                                  hours: inlineOvertimes[emp.id]?.hours || 2,
-                                  note: inlineOvertimes[emp.id]?.note || ''
-                                }
-                              });
-                            }}
-                            className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border flex items-center gap-1 transition-colors ${
-                              inlineOvertimes[emp.id]?.enabled
-                                ? 'bg-orange-500 border-orange-500 text-white'
-                                : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-805'
-                            }`}
-                          >
-                            <Clock size={11} />
-                            <span>{lang === 'id' ? 'Lembur' : 'OT'}</span>
-                          </button>
+                          {/* Overtime toggle button — hanya muncul kalau status HADIR */}
+                          {state.status === 'hadir' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const isEnabled = inlineOvertimes[emp.id]?.enabled;
+                                setInlineOvertimes({
+                                  ...inlineOvertimes,
+                                  [emp.id]: {
+                                    enabled: !isEnabled,
+                                    hours: inlineOvertimes[emp.id]?.hours || 2,
+                                    note: inlineOvertimes[emp.id]?.note || ''
+                                  }
+                                });
+                              }}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border flex items-center gap-1 transition-colors ${
+                                inlineOvertimes[emp.id]?.enabled
+                                  ? 'bg-orange-500 border-orange-500 text-white'
+                                  : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-805'
+                              }`}
+                            >
+                              <Clock size={11} />
+                              <span>{lang === 'id' ? 'Lembur' : 'OT'}</span>
+                            </button>
+                          )}
                         </div>
                       </div>
 
