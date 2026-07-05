@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Project, MaterialTransaction, Employee, Attendance, ProgressPhoto, Language } from '../types';
+import { Project, MaterialTransaction, Employee, Attendance, ProgressPhoto, Overtime, Language } from '../types';
 import { Share2, Calendar, FileText, CheckCircle, Copy, Check } from 'lucide-react';
 
 interface ReportShareProps {
@@ -7,6 +7,7 @@ interface ReportShareProps {
   materials: MaterialTransaction[];
   employees: Employee[];
   attendance: Attendance[];
+  overtimes?: Overtime[];
   photos: ProgressPhoto[];
   lang: Language;
 }
@@ -16,6 +17,7 @@ export const ReportShare: React.FC<ReportShareProps> = ({
   materials,
   employees,
   attendance,
+  overtimes = [],
   photos,
   lang
 }) => {
@@ -27,9 +29,20 @@ export const ReportShare: React.FC<ReportShareProps> = ({
   const activeProj = projects.find(p => p.id === selProjId) || projects[0];
 
   // Compile daily summaries for selected project and date
-  const projectAttendance = attendance.filter(a => a.date === reportDate);
+  // PENTING: filter berdasarkan projectId JUGA, bukan cuma tanggal —
+  // supaya laporan proyek A tidak menampilkan pegawai yang sebenarnya kerja di proyek B hari itu.
+  const projectAttendance = attendance.filter(a => a.date === reportDate && a.projectId === selProjId);
+  const projectOvertimes = overtimes.filter(o => o.date === reportDate && o.projectId === selProjId);
   const projectMaterials = materials.filter(m => m.projectId === selProjId && m.date === reportDate);
   const projectPhotos = photos.filter(p => p.projectId === selProjId && p.date === reportDate);
+
+  const formatRupiah = (val: number) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      maximumFractionDigits: 0
+    }).format(val);
+  };
 
   // Format Indonesian Contractor Daily Report Message
   const compileReportText = () => {
@@ -44,19 +57,35 @@ export const ReportShare: React.FC<ReportShareProps> = ({
     // 👷 Attendance
     let attendanceText = `👷 *KEHADIRAN & ABSENSI TIM*:\n`;
     if (projectAttendance.length === 0) {
-      attendanceText += `_Belum ada data absensi diisi._\n`;
+      attendanceText += `_Belum ada data absensi diisi untuk proyek ini._\n`;
     } else {
       projectAttendance.forEach(a => {
         const emp = employees.find(e => e.id === a.employeeId);
         const roleStr = emp ? `(${emp.role})` : '';
         const statusStr = a.status === 'hadir' ? '✅ HADIR' : 
-                          a.status === 'absen' ? '❌ ABSEN' : 
-                          a.status === 'izin' ? '⚠️ IZIN' : '🤒 SAKIT';
+                          a.status === 'absen' ? '❌ ALPHA' : 
+                          a.status === 'izin' ? '⚠️ IZIN' : 
+                          a.status === 'sakit' ? '🤒 SAKIT' :
+                          '🏖️ LIBUR';
         const noteStr = a.note ? ` (${a.note})` : '';
         attendanceText += `- ${a.employeeName} ${roleStr}: *${statusStr}*${noteStr}\n`;
       });
     }
     attendanceText += `\n`;
+
+    // ⏱️ Lembur (Overtime) — hanya yang terkait proyek ini hari ini
+    let overtimeText = `⏱️ *LEMBUR LAPANGAN*:\n`;
+    if (projectOvertimes.length === 0) {
+      overtimeText += `_Tidak ada lembur tercatat untuk proyek ini hari ini._\n`;
+    } else {
+      let totalOvertimeCost = 0;
+      projectOvertimes.forEach(o => {
+        totalOvertimeCost += o.totalAmount;
+        overtimeText += `- ${o.employeeName}: *${o.hours} jam* (${formatRupiah(o.totalAmount)})${o.note ? ` — ${o.note}` : ''}\n`;
+      });
+      overtimeText += `_Total biaya lembur: *${formatRupiah(totalOvertimeCost)}*_\n`;
+    }
+    overtimeText += `\n`;
 
     // 📦 Materials In (Masuk)
     let materialText = `📦 *LOG MATERIAL MASUK*:\n`;
@@ -87,7 +116,7 @@ export const ReportShare: React.FC<ReportShareProps> = ({
     const footer = `=====================================\n` +
                    `_Dikirim otomatis via PWA EBA PROJECT_`;
 
-    return `${title}${attendanceText}${materialText}${progressText}${footer}`;
+    return `${title}${attendanceText}${overtimeText}${materialText}${progressText}${footer}`;
   };
 
   const reportText = compileReportText();
