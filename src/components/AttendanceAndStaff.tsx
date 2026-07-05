@@ -68,13 +68,6 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
     emp.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Khusus form Presensi Harian: hanya tampilkan pegawai yang ditugaskan ke project
-  // yang sedang dipilih, supaya absensi antar-proyek tidak bentrok.
-  // Pegawai tanpa assignedProjectId tetap muncul di semua project (fallback).
-  const attendanceEmployees = filteredEmployees.filter(emp =>
-    !emp.assignedProjectId || emp.assignedProjectId === selectedAttProjectId
-  );
-
   const filteredOvertimes = overtimes.filter(o => 
     o.employeeName.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -88,14 +81,13 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const [empName, setEmpName] = useState('');
   const [empRole, setEmpRole] = useState('Tukang Listrik (ME)');
   const [empWage, setEmpWage] = useState('150.000');
-  const [empProjectId, setEmpProjectId] = useState(projects[0]?.id || '');
 
   // Attendance Form
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
-  const [dailyPresence, setDailyPresence] = useState<Record<string, { status: 'hadir' | 'absen' | 'izin' | 'sakit'; note: string }>>(
+  const [dailyPresence, setDailyPresence] = useState<Record<string, { status: 'hadir' | 'absen' | 'izin' | 'sakit'; note: string; projectId: string }>>(
     employees.reduce((acc, emp) => ({
       ...acc,
-      [emp.id]: { status: 'hadir', note: '' }
+      [emp.id]: { status: 'hadir', note: '', projectId: projects[0]?.id || '' }
     }), {})
   );
 
@@ -118,7 +110,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const handleAddEmployeeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!empName) return;
-    onAddEmployee({ name: empName, role: empRole, dailySalary: parseFormattedNumber(empWage), assignedProjectId: empProjectId });
+    onAddEmployee({ name: empName, role: empRole, dailySalary: parseFormattedNumber(empWage) });
     setEmpName('');
     setEmpWage('150.000');
     setShowAddEmp(false);
@@ -150,31 +142,32 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
 
   const handleAttendanceSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedProj = projects.find(p => p.id === selectedAttProjectId);
-    // Hanya submit pegawai yang di-assign ke project ini (atau tanpa assignment/fallback)
-    const employeesToSubmit = employees.filter(emp =>
-      !emp.assignedProjectId || emp.assignedProjectId === selectedAttProjectId
-    );
-    const records = employeesToSubmit.map(emp => {
-      const state = dailyPresence[emp.id] || { status: 'hadir', note: '' };
+    // Setiap pegawai bisa di-absen untuk proyek berbeda pada hari yang sama —
+    // projectId diambil dari pilihan masing-masing baris pegawai (dailyPresence),
+    // bukan dari 1 dropdown global.
+    const records = filteredEmployees.map(emp => {
+      const state = dailyPresence[emp.id] || { status: 'hadir', note: '', projectId: projects[0]?.id || '' };
+      const proj = projects.find(p => p.id === state.projectId);
       return {
         date: attendanceDate,
         employeeId: emp.id,
         employeeName: emp.name,
         status: state.status,
         note: state.note,
-        projectId: selectedProj?.id || '',
-        projectName: selectedProj?.name || ''
+        projectId: proj?.id || '',
+        projectName: proj?.name || ''
       };
     });
     onLogAttendance(records);
 
-    // Process inline overtimes — linked ke project yang dipilih di form absensi
+    // Process inline overtimes — linked ke project yang dipilih untuk pegawai itu hari itu
     Object.keys(inlineOvertimes).forEach((empId) => {
       const ovState = inlineOvertimes[empId];
       if (ovState && ovState.enabled && ovState.hours > 0) {
         const emp = employees.find(e => e.id === empId);
         if (emp) {
+          const empState = dailyPresence[empId] || { status: 'hadir', note: '', projectId: projects[0]?.id || '' };
+          const proj = projects.find(p => p.id === empState.projectId);
           // Standard rate/hour is 25000 or custom default
           onAddOvertime({
             employeeId: emp.id,
@@ -183,12 +176,13 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
             hours: ovState.hours,
             hourlyRate: 25000,
             note: ovState.note || (lang === 'id' ? 'Lembur Harian' : 'Daily Overtime'),
-            projectId: selectedProj?.id || '',
-            projectName: selectedProj?.name || ''
+            projectId: proj?.id || '',
+            projectName: proj?.name || ''
           });
         }
       }
     });
+
 
     // Reset inline overtime states
     setInlineOvertimes({});
@@ -458,15 +452,32 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               {projects.length > 0 && (
-                <select
-                  value={selectedAttProjectId}
-                  onChange={(e) => setSelectedAttProjectId(e.target.value)}
-                  className="px-3 py-1.5 text-xs border rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
-                >
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={selectedAttProjectId}
+                    onChange={(e) => setSelectedAttProjectId(e.target.value)}
+                    className="px-3 py-1.5 text-xs border rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                  >
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Terapkan proyek terpilih ke SEMUA baris pegawai sekaligus (bisa di-override per orang)
+                      const updated = { ...dailyPresence };
+                      filteredEmployees.forEach(emp => {
+                        updated[emp.id] = { ...(updated[emp.id] || { status: 'hadir', note: '' }), projectId: selectedAttProjectId };
+                      });
+                      setDailyPresence(updated);
+                    }}
+                    className="px-2.5 py-1.5 text-[10px] font-bold bg-gray-100 dark:bg-gray-900 text-gray-600 dark:text-gray-300 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-800 whitespace-nowrap"
+                    title={lang === 'id' ? 'Terapkan proyek ini ke semua pegawai (bisa diubah per orang di bawah)' : 'Apply this project to all workers (can be overridden per row below)'}
+                  >
+                    {lang === 'id' ? 'Terapkan ke Semua' : 'Apply to All'}
+                  </button>
+                </div>
               )}
               <div className="flex items-center gap-2">
                 <Calendar size={14} className="text-gray-400" />
@@ -480,21 +491,41 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
             </div>
           </div>
 
+          <p className="text-[10px] text-amber-600 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 px-3 py-2 rounded-xl">
+            💡 {lang === 'id' 
+              ? 'Setiap pegawai bisa dipilih proyeknya masing-masing di bawah — cocok untuk tim yang pindah lokasi kerja setiap hari.' 
+              : 'Each worker can have their own project selected below — ideal for teams that move between sites daily.'}
+          </p>
+
           <form onSubmit={handleAttendanceSubmit} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm overflow-hidden p-5 space-y-4">
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {attendanceEmployees.length === 0 ? (
+              {filteredEmployees.length === 0 ? (
                 <div className="py-8 text-center text-gray-450 dark:text-gray-500 text-xs font-medium">
-                  {lang === 'id' ? 'Tidak ada pekerja yang ditugaskan ke proyek ini.' : 'No workers assigned to this project.'}
+                  {lang === 'id' ? 'Tidak ada pekerja yang cocok dengan pencarian Anda.' : 'No workers match your search query.'}
                 </div>
               ) : (
-                attendanceEmployees.map((emp) => {
-                  const state = dailyPresence[emp.id] || { status: 'hadir', note: '' };
+                filteredEmployees.map((emp) => {
+                  const state = dailyPresence[emp.id] || { status: 'hadir', note: '', projectId: projects[0]?.id || '' };
                   return (
                     <div key={emp.id} className="py-3 border-b border-gray-100 dark:border-gray-800 last:border-b-0 animate-in fade-in duration-100">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
+                        <div className="min-w-0">
                           <h4 className="text-xs font-bold text-gray-950 dark:text-gray-100">{emp.name}</h4>
                           <p className="text-[10px] text-gray-400">{emp.role}</p>
+                          {projects.length > 0 && (
+                            <select
+                              value={state.projectId || projects[0]?.id || ''}
+                              onChange={(e) => setDailyPresence({
+                                ...dailyPresence,
+                                [emp.id]: { ...state, projectId: e.target.value }
+                              })}
+                              className="mt-1 text-[10px] font-bold px-2 py-1 border border-orange-200 dark:border-orange-900/40 rounded-lg bg-orange-50/50 dark:bg-orange-950/10 text-orange-700 dark:text-orange-400"
+                            >
+                              {projects.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+                          )}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
@@ -823,22 +854,6 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                 />
               </div>
 
-              {projects.length > 0 && (
-                <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-gray-400 uppercase">{lang === 'id' ? 'Proyek Ditugaskan' : 'Assigned Project'}</label>
-                  <select
-                    value={empProjectId}
-                    onChange={(e) => setEmpProjectId(e.target.value)}
-                    className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
-                  >
-                    {projects.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                  <p className="text-[9px] text-gray-400">{lang === 'id' ? 'Pegawai hanya muncul di absensi proyek ini' : 'Employee will only appear in this project\'s attendance'}</p>
-                </div>
-              )}
-
               <button
                 type="submit"
                 className="w-full py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl"
@@ -862,11 +877,6 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                     <div className="flex-1 min-w-0">
                       <span className="font-bold text-gray-900 dark:text-white block truncate">{e.name}</span>
                       <p className="text-[10px] text-gray-400">{e.role}</p>
-                      {e.assignedProjectId && (
-                        <span className="inline-block mt-0.5 text-[9px] font-bold text-orange-600 bg-orange-50 dark:bg-orange-950/20 px-1.5 py-0.5 rounded">
-                          {projects.find(p => p.id === e.assignedProjectId)?.name || '—'}
-                        </span>
-                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="font-mono font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap">
@@ -1199,21 +1209,6 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                 />
               </div>
 
-              {projects.length > 0 && (
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">{lang === 'id' ? 'Proyek Ditugaskan' : 'Assigned Project'}</label>
-                  <select
-                    value={editingEmployee.assignedProjectId || ''}
-                    onChange={(e) => setEditingEmployee({ ...editingEmployee, assignedProjectId: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl"
-                  >
-                    <option value="">{lang === 'id' ? '— Semua Proyek (tanpa assignment) —' : '— All Projects (unassigned) —'}</option>
-                    {projects.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
