@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
-import { Project, Invoice, Language, UserRole, MaterialTransaction, OtherExpense } from '../types';
+import { Project, Invoice, Language, UserRole, MaterialTransaction, OtherExpense, Overtime, Attendance, Employee } from '../types';
 import { translations } from '../utils/lang';
-import { Plus, Eye, Check, ShieldAlert, Lock, Calendar, DollarSign, ListTodo, Activity, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Eye, Check, ShieldAlert, Lock, Calendar, DollarSign, ListTodo, Activity, Edit2, Trash2, Printer, ChevronDown } from 'lucide-react';
 import { formatNumberInput, parseFormattedNumber } from '../utils/currency';
 
 interface ProjectListProps {
   projects: Project[];
   materials?: MaterialTransaction[];
   otherExpenses?: OtherExpense[];
+  overtimes?: Overtime[];
+  attendance?: Attendance[];
+  employees?: Employee[];
   onAddProject: (proj: Omit<Project, 'id' | 'invoices'>) => void;
   onUpdateProject?: (proj: Project) => void;
   onDeleteProject?: (id: string) => void;
@@ -24,6 +27,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   projects,
   materials = [],
   otherExpenses = [],
+  overtimes = [],
+  attendance = [],
+  employees = [],
   onAddProject,
   onUpdateProject,
   onDeleteProject,
@@ -38,6 +44,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const t = translations[lang] || translations['id'];
   const [showAddProj, setShowAddProj] = useState(false);
   const [selectedProjId, setSelectedProjId] = useState<string | null>(projects[0]?.id || null);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [breakdownPeriod, setBreakdownPeriod] = useState<'day' | 'week' | 'month'>('month');
   
   // New Project Form State
   const [newProjName, setNewProjName] = useState('');
@@ -157,7 +165,87 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     const expSpent = otherExpenses
       .filter(e => e.projectId === projId)
       .reduce((acc, e) => acc + e.amount, 0);
-    return matSpent + expSpent;
+    // Lembur (overtime) yang linked ke project ini (dikirim via absensi harian)
+    const overtimeSpent = overtimes
+      .filter(o => o.projectId === projId)
+      .reduce((acc, o) => acc + o.totalAmount, 0);
+    // Gaji pegawai: dihitung dari absensi 'hadir' di project ini × gaji harian pegawai
+    const salarySpent = attendance
+      .filter(a => a.projectId === projId && a.status === 'hadir')
+      .reduce((acc, a) => {
+        const emp = employees.find(e => e.id === a.employeeId);
+        return acc + (emp?.dailySalary || 0);
+      }, 0);
+    return matSpent + expSpent + overtimeSpent + salarySpent;
+  };
+
+  /**
+   * Breakdown pengeluaran project berdasarkan periode (harian/mingguan/bulanan),
+   * dikelompokkan per kategori: Material, Lembur Pegawai, Gaji Pegawai, Biaya Lain.
+   */
+  const getProjectBreakdown = (projId: string, period: 'day' | 'week' | 'month') => {
+    type Row = { key: string; label: string; material: number; overtime: number; salary: number; expense: number; total: number };
+    const rows = new Map<string, Row>();
+
+    const getPeriodKey = (dateStr: string): { key: string; label: string } => {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return { key: dateStr, label: dateStr };
+      if (period === 'day') {
+        return { key: dateStr, label: dateStr };
+      }
+      if (period === 'week') {
+        // ISO week number
+        const tmp = new Date(d);
+        tmp.setHours(0, 0, 0, 0);
+        tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+        const week1 = new Date(tmp.getFullYear(), 0, 4);
+        const weekNo = 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+        const key = `${tmp.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+        return { key, label: (lang === 'id' ? 'Minggu ' : 'Week ') + weekNo + ', ' + tmp.getFullYear() };
+      }
+      // month
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const monthNames = lang === 'id'
+        ? ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+        : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}` };
+    };
+
+    const ensureRow = (dateStr: string) => {
+      const { key, label } = getPeriodKey(dateStr);
+      if (!rows.has(key)) {
+        rows.set(key, { key, label, material: 0, overtime: 0, salary: 0, expense: 0, total: 0 });
+      }
+      return rows.get(key)!;
+    };
+
+    materials
+      .filter(m => m.projectId === projId && m.type === 'masuk')
+      .forEach(m => { const r = ensureRow(m.date); r.material += m.totalPrice; r.total += m.totalPrice; });
+
+    otherExpenses
+      .filter(e => e.projectId === projId)
+      .forEach(e => { const r = ensureRow(e.date); r.expense += e.amount; r.total += e.amount; });
+
+    overtimes
+      .filter(o => o.projectId === projId)
+      .forEach(o => { const r = ensureRow(o.date); r.overtime += o.totalAmount; r.total += o.totalAmount; });
+
+    attendance
+      .filter(a => a.projectId === projId && a.status === 'hadir')
+      .forEach(a => {
+        const emp = employees.find(e => e.id === a.employeeId);
+        const amt = emp?.dailySalary || 0;
+        const r = ensureRow(a.date);
+        r.salary += amt;
+        r.total += amt;
+      });
+
+    return Array.from(rows.values()).sort((a, b) => a.key.localeCompare(b.key));
+  };
+
+  const handlePrintBreakdown = (projName: string) => {
+    window.print();
   };
 
   // If User role: hide all financial data
@@ -422,6 +510,123 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                         {formatRupiah(getProjectSpentBudget(activeProj.id))}
                       </h5>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Toggle breakdown detail */}
+              {!isMandor && (
+                <button
+                  onClick={() => setShowBreakdown(!showBreakdown)}
+                  className="w-full flex items-center justify-between p-3 rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-900/40 transition-colors"
+                >
+                  <span className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                    <ListTodo size={13} />
+                    {lang === 'id' ? 'Lihat Rincian Anggaran Terpakai' : 'View Spent Budget Breakdown'}
+                  </span>
+                  <ChevronDown size={14} className={`text-gray-400 transition-transform ${showBreakdown ? 'rotate-180' : ''}`} />
+                </button>
+              )}
+
+              {/* Breakdown Detail Panel */}
+              {!isMandor && showBreakdown && (
+                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/60 p-4 space-y-3" id="budget-breakdown-panel">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="flex bg-gray-100 dark:bg-gray-900 rounded-lg p-1 text-[10px] font-bold w-fit">
+                      {(['day', 'week', 'month'] as const).map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => setBreakdownPeriod(p)}
+                          className={`px-3 py-1.5 rounded-md transition-colors ${
+                            breakdownPeriod === p
+                              ? 'bg-orange-500 text-white'
+                              : 'text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800'
+                          }`}
+                        >
+                          {p === 'day' ? (lang === 'id' ? 'Harian' : 'Daily') :
+                           p === 'week' ? (lang === 'id' ? 'Mingguan' : 'Weekly') :
+                           (lang === 'id' ? 'Bulanan' : 'Monthly')}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => handlePrintBreakdown(activeProj.name)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg"
+                    >
+                      <Printer size={12} />
+                      {lang === 'id' ? 'Cetak PDF' : 'Print PDF'}
+                    </button>
+                  </div>
+
+                  <div id="budget-breakdown-printable" className="overflow-x-auto">
+                    <div className="hidden print:block mb-3">
+                      <h2 className="text-sm font-black uppercase">{activeProj.name}</h2>
+                      <p className="text-xs text-gray-500">
+                        {lang === 'id' ? 'Rincian Anggaran Terpakai' : 'Spent Budget Breakdown'} — {
+                          breakdownPeriod === 'day' ? (lang === 'id' ? 'Harian' : 'Daily') :
+                          breakdownPeriod === 'week' ? (lang === 'id' ? 'Mingguan' : 'Weekly') :
+                          (lang === 'id' ? 'Bulanan' : 'Monthly')
+                        }
+                      </p>
+                    </div>
+                    <table className="w-full text-[11px] border-collapse">
+                      <thead>
+                        <tr className="border-b-2 border-gray-200 dark:border-gray-700 text-left">
+                          <th className="py-2 pr-2 font-bold text-gray-500 dark:text-gray-400 uppercase text-[9px]">
+                            {breakdownPeriod === 'day' ? (lang === 'id' ? 'Tanggal' : 'Date') :
+                             breakdownPeriod === 'week' ? (lang === 'id' ? 'Minggu' : 'Week') :
+                             (lang === 'id' ? 'Bulan' : 'Month')}
+                          </th>
+                          <th className="py-2 px-2 font-bold text-gray-500 dark:text-gray-400 uppercase text-[9px] text-right">
+                            {lang === 'id' ? 'Material' : 'Material'}
+                          </th>
+                          <th className="py-2 px-2 font-bold text-gray-500 dark:text-gray-400 uppercase text-[9px] text-right">
+                            {lang === 'id' ? 'Lembur Pegawai' : 'Overtime'}
+                          </th>
+                          <th className="py-2 px-2 font-bold text-gray-500 dark:text-gray-400 uppercase text-[9px] text-right">
+                            {lang === 'id' ? 'Gaji Pegawai' : 'Salary'}
+                          </th>
+                          <th className="py-2 px-2 font-bold text-gray-500 dark:text-gray-400 uppercase text-[9px] text-right">
+                            {lang === 'id' ? 'Biaya Lain' : 'Other'}
+                          </th>
+                          <th className="py-2 pl-2 font-bold text-gray-500 dark:text-gray-400 uppercase text-[9px] text-right">
+                            {lang === 'id' ? 'Total' : 'Total'}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {getProjectBreakdown(activeProj.id, breakdownPeriod).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-6 text-center text-gray-400 text-xs">
+                              {lang === 'id' ? 'Belum ada data pengeluaran' : 'No spending data yet'}
+                            </td>
+                          </tr>
+                        ) : (
+                          getProjectBreakdown(activeProj.id, breakdownPeriod).map(row => (
+                            <tr key={row.key} className="border-b border-gray-100 dark:border-gray-800">
+                              <td className="py-2 pr-2 font-semibold text-gray-800 dark:text-gray-200">{row.label}</td>
+                              <td className="py-2 px-2 text-right text-gray-600 dark:text-gray-400">{row.material > 0 ? formatRupiah(row.material) : '-'}</td>
+                              <td className="py-2 px-2 text-right text-gray-600 dark:text-gray-400">{row.overtime > 0 ? formatRupiah(row.overtime) : '-'}</td>
+                              <td className="py-2 px-2 text-right text-gray-600 dark:text-gray-400">{row.salary > 0 ? formatRupiah(row.salary) : '-'}</td>
+                              <td className="py-2 px-2 text-right text-gray-600 dark:text-gray-400">{row.expense > 0 ? formatRupiah(row.expense) : '-'}</td>
+                              <td className="py-2 pl-2 text-right font-bold text-gray-900 dark:text-white">{formatRupiah(row.total)}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                      {getProjectBreakdown(activeProj.id, breakdownPeriod).length > 0 && (
+                        <tfoot>
+                          <tr className="border-t-2 border-gray-300 dark:border-gray-600 font-bold">
+                            <td className="py-2 pr-2 text-gray-900 dark:text-white">{lang === 'id' ? 'TOTAL' : 'TOTAL'}</td>
+                            <td className="py-2 px-2 text-right text-gray-900 dark:text-white">{formatRupiah(getProjectBreakdown(activeProj.id, breakdownPeriod).reduce((a, r) => a + r.material, 0))}</td>
+                            <td className="py-2 px-2 text-right text-gray-900 dark:text-white">{formatRupiah(getProjectBreakdown(activeProj.id, breakdownPeriod).reduce((a, r) => a + r.overtime, 0))}</td>
+                            <td className="py-2 px-2 text-right text-gray-900 dark:text-white">{formatRupiah(getProjectBreakdown(activeProj.id, breakdownPeriod).reduce((a, r) => a + r.salary, 0))}</td>
+                            <td className="py-2 px-2 text-right text-gray-900 dark:text-white">{formatRupiah(getProjectBreakdown(activeProj.id, breakdownPeriod).reduce((a, r) => a + r.expense, 0))}</td>
+                            <td className="py-2 pl-2 text-right text-orange-600">{formatRupiah(getProjectBreakdown(activeProj.id, breakdownPeriod).reduce((a, r) => a + r.total, 0))}</td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
                   </div>
                 </div>
               )}
@@ -747,6 +952,21 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           </form>
         </div>
       )}
+
+      {/* Print styles - hanya breakdown panel yang tercetak */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #budget-breakdown-printable, #budget-breakdown-printable * { visibility: visible; }
+          #budget-breakdown-printable {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            padding: 15mm;
+          }
+        }
+      `}</style>
 
     </div>
   );

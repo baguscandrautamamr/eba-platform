@@ -157,7 +157,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
     });
     onLogAttendance(records);
 
-    // Process inline overtimes
+    // Process inline overtimes — linked ke project yang dipilih di form absensi
     Object.keys(inlineOvertimes).forEach((empId) => {
       const ovState = inlineOvertimes[empId];
       if (ovState && ovState.enabled && ovState.hours > 0) {
@@ -170,7 +170,9 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
             date: attendanceDate,
             hours: ovState.hours,
             hourlyRate: 25000,
-            note: ovState.note || (lang === 'id' ? 'Lembur Harian' : 'Daily Overtime')
+            note: ovState.note || (lang === 'id' ? 'Lembur Harian' : 'Daily Overtime'),
+            projectId: selectedProj?.id || '',
+            projectName: selectedProj?.name || ''
           });
         }
       }
