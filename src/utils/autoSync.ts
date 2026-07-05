@@ -41,7 +41,7 @@ export function triggerAutoSync() {
  * - base64 di images[] diganti dengan driveUrl (supaya bisa ditampilkan saat pull)
  * - Kalau tidak ada driveUrl, base64 dihapus (terlalu besar untuk JSON cloud)
  */
-function cleanPhotosForSync(photos: any[]): any[] {
+export function cleanPhotosForSync(photos: any[]): any[] {
   if (!Array.isArray(photos)) return [];
   return photos.map((p: any) => {
     const driveUrls: string[] = p.driveUrls || [];
