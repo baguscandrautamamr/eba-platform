@@ -55,7 +55,6 @@ export interface Employee {
   name: string;
   role: string; // e.g. Tukang, Kenek, Mandor, ME Specialist
   dailySalary: number; // Daily wage
-  assignedProjectId?: string; // Proyek tempat pegawai ini biasa ditugaskan
 }
 
 export interface Attendance {
