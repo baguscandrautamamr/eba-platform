@@ -1,14 +1,14 @@
 /**
  * autoSync.ts — Auto-sync ke Google Drive + Sheets
  * 
- * CARA KERJA:
- * 1. Setiap kali data berubah (add/edit/delete), triggerAutoSync() dipanggil
+ * CARA KERJA (SEDERHANA, TANPA MERGE):
+ * 1. Setiap kali data berubah, triggerAutoSync() dipanggil
  * 2. Tunggu 3 detik (debounce)
- * 3. PULL data dari cloud (JSON)
- * 4. MERGE dengan data lokal (gabungkan berdasarkan ID, tanpa duplikat)
- * 5. PUSH hasil merge ke cloud (JSON + Sheets)
+ * 3. Push data lokal ke cloud (REPLACE, bukan merge)
+ * 4. Cloud JSON + Sheets langsung terupdate
  * 
- * Ini memastikan data dari SEMUA device tergabung, tidak saling overwrite.
+ * TIDAK pakai merge — data lokal = sumber kebenaran.
+ * Multi-device sync dilakukan via "Ambil dari Cloud" manual.
  * 
  * Copy ke: src/utils/autoSync.ts
  */
@@ -36,28 +36,29 @@ export function triggerAutoSync() {
   timer = setTimeout(() => doSync(gasUrl), DEBOUNCE_MS);
 }
 
-/** Merge 2 array berdasarkan field 'id' — local data menang kalau ada konflik */
-function mergeById(localArr: any[], cloudArr: any[]): any[] {
-  const map = new Map<string, any>();
-  // Cloud data masuk dulu
-  for (const item of cloudArr) {
-    if (item?.id) map.set(item.id, item);
-  }
-  // Local data overwrite (local menang kalau ID sama)
-  for (const item of localArr) {
-    if (item?.id) map.set(item.id, item);
-  }
-  return Array.from(map.values());
-}
+/**
+ * Bersihkan photos sebelum kirim ke cloud:
+ * - base64 di images[] diganti dengan driveUrl (supaya bisa ditampilkan saat pull)
+ * - Kalau tidak ada driveUrl, base64 dihapus (terlalu besar untuk JSON cloud)
+ */
+function cleanPhotosForSync(photos: any[]): any[] {
+  if (!Array.isArray(photos)) return [];
+  return photos.map((p: any) => {
+    const driveUrls: string[] = p.driveUrls || [];
+    // Ganti base64 di images dengan driveUrl, bukan hapus
+    const cleanImages = (p.images || []).map((img: string, i: number) => {
+      if (typeof img === 'string' && img.startsWith('data:')) {
+        // Ganti base64 dengan driveUrl kalau ada
+        return driveUrls[i] || driveUrls[0] || '';
+      }
+      return img; // Sudah URL, keep as is
+    }).filter(Boolean);
 
-/** Strip base64 dari photos agar request kecil */
-function stripBase64(photos: any[]): any[] {
-  return photos.map((p: any) => ({
-    ...p,
-    images: (p.images || [])
-      .map((img: string) => (typeof img === 'string' && img.startsWith('data:')) ? '' : img)
-      .filter(Boolean)
-  }));
+    return {
+      ...p,
+      images: cleanImages.length > 0 ? cleanImages : driveUrls // fallback ke driveUrls
+    };
+  });
 }
 
 async function doSync(gasUrl: string) {
@@ -68,50 +69,22 @@ async function doSync(gasUrl: string) {
   try {
     const local = { ...getLatestData() };
 
-    // === STEP 1: PULL cloud data ===
-    let cloud: Record<string, any> = {};
-    try {
-      const pullRes = await fetch(gasUrl, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'sync_db', type: 'get' }),
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-      });
-      const pullData = await pullRes.json();
-      if (pullData.success && pullData.found && pullData.db) {
-        cloud = pullData.db;
-      }
-    } catch (e) {
-      console.warn('[AutoSync] Pull gagal, skip merge:', e);
-    }
+    // Bersihkan photos (ganti base64 → driveUrl)
+    local.photos = cleanPhotosForSync(local.photos);
+    local.lastUpdated = Date.now();
 
-    // === STEP 2: MERGE local + cloud (berdasarkan ID) ===
-    const merged: Record<string, any> = {
-      projects:      mergeById(local.projects || [], cloud.projects || []),
-      employees:     mergeById(local.employees || [], cloud.employees || []),
-      attendance:    mergeById(local.attendance || [], cloud.attendance || []),
-      materials:     mergeById(local.materials || [], cloud.materials || []),
-      kasbons:       mergeById(local.kasbons || [], cloud.kasbons || []),
-      overtimes:     mergeById(local.overtimes || [], cloud.overtimes || []),
-      otherExpenses: mergeById(local.otherExpenses || [], cloud.otherExpenses || []),
-      photos:        mergeById(local.photos || [], cloud.photos || []),
-      lastUpdated:   Date.now()
-    };
-
-    // Strip base64 dari photos agar request tidak terlalu besar
-    merged.photos = stripBase64(merged.photos);
-
-    // === STEP 3: PUSH merged data ke cloud ===
-    const pushRes = await fetch(gasUrl, {
+    // PUSH langsung — data lokal = kebenaran
+    const res = await fetch(gasUrl, {
       method: 'POST',
-      body: JSON.stringify({ action: 'sync_db', type: 'put', db: merged }),
+      body: JSON.stringify({ action: 'sync_db', type: 'put', db: local }),
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }
     });
 
-    if (!pushRes.ok) throw new Error('Server: ' + pushRes.status);
-    const pushData = await pushRes.json();
-    if (!pushData.success) throw new Error(pushData.error || 'Sync gagal');
+    if (!res.ok) throw new Error('Server: ' + res.status);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Sync gagal');
 
-    console.log('[AutoSync] ✅ Pull-Merge-Push berhasil');
+    console.log('[AutoSync] ✅ Berhasil sync ke cloud');
   } catch (e: any) {
     console.warn('[AutoSync] ❌ Gagal:', e.message);
   } finally {
