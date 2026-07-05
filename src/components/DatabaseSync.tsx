@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Cloud, ArrowUp, ArrowDown, Settings, CheckCircle, AlertCircle, Loader2, Database, HelpCircle, Copy, Check } from 'lucide-react';
+import { Cloud, ArrowUp, ArrowDown, Settings, CheckCircle, AlertCircle, Loader2, Database, HelpCircle, Copy, Check, FileSpreadsheet } from 'lucide-react';
 import { Language, UserRole } from '../types';
-import { getGasUrl, setGasUrl, syncDatabaseViaGas } from '../utils/googleDrive';
+import { getGasUrl, setGasUrl, syncDatabaseViaGas, exportToSheetsViaGas } from '../utils/googleDrive';
 
 interface DatabaseSyncProps {
   onDataRestore: (restoredData: any) => void;
@@ -22,6 +22,7 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
   const [isEditingUrl, setIsEditingUrl] = useState<boolean>(false);
   const [gasInput, setGasInput] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+  const [exportingSheets, setExportingSheets] = useState<boolean>(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
   
   // Cloud metadata after pull
@@ -144,6 +145,49 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Export ke Google Sheets — TERPISAH dari sync harian (sync_db),
+  // supaya sync data (JSON ke Drive) tetap cepat setiap kali ada perubahan.
+  // Sheets hanya diupdate saat tombol ini ditekan (atau via trigger terjadwal di GAS).
+  const handleExportSheets = async () => {
+    if (!gasUrlState) {
+      setStatus({
+        type: 'error',
+        message: lang === 'id' ? 'Silakan konfigurasi URL Google Apps Script terlebih dahulu.' : 'Please configure your Google Apps Script URL first.'
+      });
+      return;
+    }
+    if (isOffline) {
+      setStatus({
+        type: 'error',
+        message: lang === 'id' ? 'Tidak dapat export saat offline.' : 'Cannot export while offline.'
+      });
+      return;
+    }
+
+    setExportingSheets(true);
+    setStatus({
+      type: null,
+      message: lang === 'id' ? 'Mengupdate Google Sheets...' : 'Updating Google Sheets...'
+    });
+
+    try {
+      await exportToSheetsViaGas(gasUrlState);
+      setStatus({
+        type: 'success',
+        message: lang === 'id' ? 'Google Sheets berhasil diupdate!' : 'Google Sheets updated successfully!'
+      });
+    } catch (err: any) {
+      setStatus({
+        type: 'error',
+        message: lang === 'id' 
+          ? `Gagal export ke Sheets: ${err.message}` 
+          : `Sheets export failed: ${err.message}`
+      });
+    } finally {
+      setExportingSheets(false);
     }
   };
 
@@ -652,6 +696,23 @@ function exportDatabaseToSheets(db, folder) {
           <span>{lang === 'id' ? 'Kirim ke Cloud' : 'Push to Cloud'}</span>
         </button>
       </div>
+
+      {/* Export ke Sheets — terpisah dari sync harian, dipicu manual */}
+      <button
+        onClick={handleExportSheets}
+        disabled={exportingSheets || isOffline}
+        className={`w-full flex items-center justify-center gap-2.5 px-4 py-3 border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/10 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 text-xs font-bold text-emerald-700 dark:text-emerald-400 rounded-xl transition-all ${
+          exportingSheets || isOffline ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'
+        }`}
+        title={lang === 'id' ? 'Update Google Sheets dari data JSON terbaru di Drive (tidak mempengaruhi kecepatan sync harian)' : 'Update Google Sheets from latest JSON data on Drive'}
+      >
+        {exportingSheets ? (
+          <Loader2 size={15} className="animate-spin" />
+        ) : (
+          <FileSpreadsheet size={15} />
+        )}
+        <span>{lang === 'id' ? 'Update Google Sheets' : 'Update Google Sheets'}</span>
+      </button>
 
       {/* Cloud DB Info & Overwrite Prompt */}
       {cloudDbInfo && (
