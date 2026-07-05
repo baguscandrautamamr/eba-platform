@@ -687,6 +687,7 @@ export default function App() {
               attendance={attendance}
               kasbons={kasbons}
               overtimes={overtimes}
+              projects={projects}
               onAddEmployee={handleAddEmployee}
               onUpdateEmployee={handleUpdateEmployee}
               onDeleteEmployee={handleDeleteEmployee}
