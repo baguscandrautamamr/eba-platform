@@ -338,6 +338,18 @@ export default function App() {
     saveToLocalStorage('EBA_ATTENDANCE', updated);
   };
 
+  const handleUpdateAttendance = (updatedRecord: Attendance) => {
+    const updated = attendance.map(a => a.id === updatedRecord.id ? updatedRecord : a);
+    setAttendance(updated);
+    saveToLocalStorage('EBA_ATTENDANCE', updated);
+  };
+
+  const handleDeleteAttendance = (id: string) => {
+    const updated = attendance.filter(a => a.id !== id);
+    setAttendance(updated);
+    saveToLocalStorage('EBA_ATTENDANCE', updated);
+  };
+
   const handleAddKasbon = (newKas: Omit<Kasbon, 'id'>) => {
     const kas: Kasbon = {
       ...newKas,
@@ -695,6 +707,8 @@ export default function App() {
               onUpdateEmployee={handleUpdateEmployee}
               onDeleteEmployee={handleDeleteEmployee}
               onLogAttendance={handleLogAttendance}
+              onUpdateAttendance={handleUpdateAttendance}
+              onDeleteAttendance={handleDeleteAttendance}
               onAddKasbon={handleAddKasbon}
               onUpdateKasbon={handleUpdateKasbon}
               onDeleteKasbon={handleDeleteKasbon}
