@@ -42,16 +42,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const totalOtherExpenses = otherExpenses.reduce((acc, e) => acc + e.amount, 0);
 
-  // Staff wages: calculate based on attendance and overtime minus kasbon
-  // Wait, let's calculate total salary spent: sum(attendance days * daily salary) + sum(overtime amounts)
+  // Staff wages: hanya hitung yang terkait ke sebuah proyek (ada projectId)
+  // supaya konsisten dengan rincian anggaran per-proyek
   const totalSalarySpent = attendance
-    .filter(a => a.status === 'hadir')
+    .filter(a => a.status === 'hadir' && a.projectId)
     .reduce((acc, a) => {
       const emp = employees.find(e => e.id === a.employeeId);
       return acc + (emp ? emp.dailySalary : 0);
     }, 0);
 
-  const totalOvertimeSpent = overtimes.reduce((acc, o) => acc + o.totalAmount, 0);
+  // Lembur: hanya yang linked ke proyek (dari absensi harian).
+  // Lembur standalone (form "Input Lembur Pegawai") TIDAK dihitung karena
+  // itu cuma catatan referensi tarif, bukan pengeluaran proyek.
+  const totalOvertimeSpent = overtimes
+    .filter(o => o.projectId)
+    .reduce((acc, o) => acc + o.totalAmount, 0);
   const totalSpent = totalMaterialSpent + totalOtherExpenses + totalSalarySpent + totalOvertimeSpent;
 
   // Formatting utility
@@ -265,17 +270,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 .filter(e => e.projectId === proj.id)
                 .reduce((acc, e) => acc + e.amount, 0);
 
-              // Attendance labor cost for this project is simulated proportionally or tracked
-              // We can distribute attendance labor cost or calculate direct sum
+              // Attendance labor cost — hanya absensi yang linked ke project ini
               const staffCost = attendance
-                .filter(a => a.status === 'hadir')
+                .filter(a => a.status === 'hadir' && a.projectId === proj.id)
                 .reduce((acc, a) => {
                   const emp = employees.find(e => e.id === a.employeeId);
-                  // Assign to this project if project specific or simply simulate 1/N
-                  return acc + (emp ? emp.dailySalary / projects.length : 0);
+                  return acc + (emp ? emp.dailySalary : 0);
                 }, 0);
 
-              const projSpent = matCost + expCost + staffCost;
+              // Lembur — hanya yang linked ke project ini
+              const overtimeCost = overtimes
+                .filter(o => o.projectId === proj.id)
+                .reduce((acc, o) => acc + o.totalAmount, 0);
+
+              const projSpent = matCost + expCost + staffCost + overtimeCost;
               const percentage = Math.min(100, (projSpent / proj.budget) * 100);
               const remaining = proj.budget - projSpent;
 
