@@ -23,8 +23,12 @@ let hasPending = false;
 type DataGetter = () => Record<string, any>;
 let getLatestData: DataGetter | null = null;
 
-export function registerAutoSync(getter: DataGetter) {
+type StatusCb = (status: 'idle' | 'syncing' | 'success' | 'error', msg?: string) => void;
+let statusCb: StatusCb | null = null;
+
+export function registerAutoSync(getter: DataGetter, onStatus?: StatusCb) {
   getLatestData = getter;
+  statusCb = onStatus || null;
 }
 
 export function triggerAutoSync() {
@@ -66,6 +70,7 @@ async function doSync(gasUrl: string) {
   if (isSyncing) { hasPending = true; return; }
 
   isSyncing = true;
+  statusCb?.('syncing', 'Menyinkronkan...');
   try {
     const local = { ...getLatestData() };
 
@@ -85,8 +90,12 @@ async function doSync(gasUrl: string) {
     if (!data.success) throw new Error(data.error || 'Sync gagal');
 
     console.log('[AutoSync] ✅ Berhasil sync ke cloud');
+    statusCb?.('success', 'Tersinkron');
+    setTimeout(() => statusCb?.('idle'), 2500);
   } catch (e: any) {
     console.warn('[AutoSync] ❌ Gagal:', e.message);
+    statusCb?.('error', 'Gagal sync');
+    setTimeout(() => statusCb?.('idle'), 4000);
   } finally {
     isSyncing = false;
     if (hasPending) {
