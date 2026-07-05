@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Project, MaterialTransaction, Employee, Attendance, ProgressPhoto, Overtime, Language } from '../types';
+import { Project, MaterialTransaction, Employee, Attendance, ProgressPhoto, Overtime, OtherExpense, Language } from '../types';
 import { Share2, Calendar, FileText, CheckCircle, Copy, Check } from 'lucide-react';
 
 interface ReportShareProps {
@@ -8,6 +8,7 @@ interface ReportShareProps {
   employees: Employee[];
   attendance: Attendance[];
   overtimes?: Overtime[];
+  otherExpenses?: OtherExpense[];
   photos: ProgressPhoto[];
   lang: Language;
 }
@@ -18,6 +19,7 @@ export const ReportShare: React.FC<ReportShareProps> = ({
   employees,
   attendance,
   overtimes = [],
+  otherExpenses = [],
   photos,
   lang
 }) => {
@@ -34,7 +36,22 @@ export const ReportShare: React.FC<ReportShareProps> = ({
   const projectAttendance = attendance.filter(a => a.date === reportDate && a.projectId === selProjId);
   const projectOvertimes = overtimes.filter(o => o.date === reportDate && o.projectId === selProjId);
   const projectMaterials = materials.filter(m => m.projectId === selProjId && m.date === reportDate);
+  const projectOtherExpenses = otherExpenses.filter(x => x.projectId === selProjId && x.date === reportDate);
   const projectPhotos = photos.filter(p => p.projectId === selProjId && p.date === reportDate);
+
+  // Rincian anggaran terpakai HARI INI untuk proyek ini (bukan akumulasi keseluruhan proyek)
+  const dailyMaterialCost = projectMaterials
+    .filter(m => m.type === 'masuk')
+    .reduce((acc, m) => acc + m.totalPrice, 0);
+  const dailyOvertimeCost = projectOvertimes.reduce((acc, o) => acc + o.totalAmount, 0);
+  const dailySalaryCost = projectAttendance
+    .filter(a => a.status === 'hadir')
+    .reduce((acc, a) => {
+      const emp = employees.find(e => e.id === a.employeeId);
+      return acc + (emp?.dailySalary || 0);
+    }, 0);
+  const dailyOtherExpenseCost = projectOtherExpenses.reduce((acc, x) => acc + x.amount, 0);
+  const dailyTotalSpent = dailyMaterialCost + dailyOvertimeCost + dailySalaryCost + dailyOtherExpenseCost;
 
   const formatRupiah = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -99,6 +116,31 @@ export const ReportShare: React.FC<ReportShareProps> = ({
     }
     materialText += `\n`;
 
+    // 💸 Pengeluaran Lapangan Lainnya
+    let otherExpenseText = `💸 *PENGELUARAN LAPANGAN LAINNYA*:\n`;
+    if (projectOtherExpenses.length === 0) {
+      otherExpenseText += `_Tidak ada pengeluaran lain tercatat hari ini._\n`;
+    } else {
+      projectOtherExpenses.forEach(x => {
+        otherExpenseText += `- ${x.category}: *${formatRupiah(x.amount)}*${x.note ? ` — ${x.note}` : ''}\n`;
+      });
+      otherExpenseText += `_Total pengeluaran lain: *${formatRupiah(dailyOtherExpenseCost)}*_\n`;
+    }
+    otherExpenseText += `\n`;
+
+    // 💰 Rincian Anggaran Terpakai Hari Ini
+    let budgetText = `💰 *RINCIAN ANGGARAN TERPAKAI HARI INI*:\n`;
+    budgetText += `- Material: ${dailyMaterialCost > 0 ? formatRupiah(dailyMaterialCost) : '-'}\n`;
+    budgetText += `- Lembur Pegawai: ${dailyOvertimeCost > 0 ? formatRupiah(dailyOvertimeCost) : '-'}\n`;
+    budgetText += `- Gaji Pegawai (Hadir): ${dailySalaryCost > 0 ? formatRupiah(dailySalaryCost) : '-'}\n`;
+    budgetText += `- Pengeluaran Lain: ${dailyOtherExpenseCost > 0 ? formatRupiah(dailyOtherExpenseCost) : '-'}\n`;
+    budgetText += `_*TOTAL TERPAKAI HARI INI: ${formatRupiah(dailyTotalSpent)}*_\n`;
+    if (activeProj.budget) {
+      const remainingBudget = activeProj.budget - dailyTotalSpent;
+      budgetText += `_Sisa anggaran proyek (setelah hari ini): ${formatRupiah(Math.max(remainingBudget, 0))}_\n`;
+    }
+    budgetText += `\n`;
+
     // 📷 Progress photos & Notes
     let progressText = `📷 *DOKUMENTASI PROGRESS LAPANGAN*:\n`;
     if (projectPhotos.length === 0) {
@@ -116,7 +158,7 @@ export const ReportShare: React.FC<ReportShareProps> = ({
     const footer = `=====================================\n` +
                    `_Dikirim otomatis via PWA EBA PROJECT_`;
 
-    return `${title}${attendanceText}${overtimeText}${materialText}${progressText}${footer}`;
+    return `${title}${attendanceText}${overtimeText}${materialText}${otherExpenseText}${budgetText}${progressText}${footer}`;
   };
 
   const reportText = compileReportText();
@@ -233,6 +275,12 @@ export const ReportShare: React.FC<ReportShareProps> = ({
                   <span className="text-gray-500">{lang === 'id' ? 'Foto Progress' : 'Camera Snapshots'}</span>
                   <span className="font-bold font-mono text-gray-950 dark:text-white">
                     {projectPhotos.length} {lang === 'id' ? 'Foto' : 'Photos'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center bg-orange-50 dark:bg-orange-950/20 p-2.5 rounded-xl border border-orange-100 dark:border-orange-900/30">
+                  <span className="text-orange-700 dark:text-orange-400 font-semibold">{lang === 'id' ? 'Terpakai Hari Ini' : 'Spent Today'}</span>
+                  <span className="font-bold font-mono text-orange-700 dark:text-orange-400">
+                    {formatRupiah(dailyTotalSpent)}
                   </span>
                 </div>
               </div>
