@@ -45,6 +45,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const [subTab, setSubTab] = useState<'roster' | 'absen' | 'kasbon' | 'lembur' | 'payslip'>('absen');
   const [mainTab, setMainTab] = useState<'presence' | 'finance'>('presence');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedAttProjectId, setSelectedAttProjectId] = useState(projects[0]?.id || '');
 
   // Edit & Delete Employee states
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -67,6 +68,13 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
     emp.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Khusus form Presensi Harian: hanya tampilkan pegawai yang ditugaskan ke project
+  // yang sedang dipilih, supaya absensi antar-proyek tidak bentrok.
+  // Pegawai tanpa assignedProjectId tetap muncul di semua project (fallback).
+  const attendanceEmployees = filteredEmployees.filter(emp =>
+    !emp.assignedProjectId || emp.assignedProjectId === selectedAttProjectId
+  );
+
   const filteredOvertimes = overtimes.filter(o => 
     o.employeeName.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -80,10 +88,10 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const [empName, setEmpName] = useState('');
   const [empRole, setEmpRole] = useState('Tukang Listrik (ME)');
   const [empWage, setEmpWage] = useState('150.000');
+  const [empProjectId, setEmpProjectId] = useState(projects[0]?.id || '');
 
   // Attendance Form
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedAttProjectId, setSelectedAttProjectId] = useState(projects[0]?.id || '');
   const [dailyPresence, setDailyPresence] = useState<Record<string, { status: 'hadir' | 'absen' | 'izin' | 'sakit'; note: string }>>(
     employees.reduce((acc, emp) => ({
       ...acc,
@@ -110,7 +118,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const handleAddEmployeeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!empName) return;
-    onAddEmployee({ name: empName, role: empRole, dailySalary: parseFormattedNumber(empWage) });
+    onAddEmployee({ name: empName, role: empRole, dailySalary: parseFormattedNumber(empWage), assignedProjectId: empProjectId });
     setEmpName('');
     setEmpWage('150.000');
     setShowAddEmp(false);
@@ -143,7 +151,11 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const handleAttendanceSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const selectedProj = projects.find(p => p.id === selectedAttProjectId);
-    const records = employees.map(emp => {
+    // Hanya submit pegawai yang di-assign ke project ini (atau tanpa assignment/fallback)
+    const employeesToSubmit = employees.filter(emp =>
+      !emp.assignedProjectId || emp.assignedProjectId === selectedAttProjectId
+    );
+    const records = employeesToSubmit.map(emp => {
       const state = dailyPresence[emp.id] || { status: 'hadir', note: '' };
       return {
         date: attendanceDate,
@@ -470,12 +482,12 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
 
           <form onSubmit={handleAttendanceSubmit} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm overflow-hidden p-5 space-y-4">
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {filteredEmployees.length === 0 ? (
+              {attendanceEmployees.length === 0 ? (
                 <div className="py-8 text-center text-gray-450 dark:text-gray-500 text-xs font-medium">
-                  {lang === 'id' ? 'Tidak ada pekerja yang cocok dengan pencarian Anda.' : 'No workers match your search query.'}
+                  {lang === 'id' ? 'Tidak ada pekerja yang ditugaskan ke proyek ini.' : 'No workers assigned to this project.'}
                 </div>
               ) : (
-                filteredEmployees.map((emp) => {
+                attendanceEmployees.map((emp) => {
                   const state = dailyPresence[emp.id] || { status: 'hadir', note: '' };
                   return (
                     <div key={emp.id} className="py-3 border-b border-gray-100 dark:border-gray-800 last:border-b-0 animate-in fade-in duration-100">
@@ -801,7 +813,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="text-[9px] font-bold text-gray-400 uppercase">Gaji Harian (IDR)</label>
+                <label className="text-[9px] font-bold text-gray-400 uppercase">{lang === 'id' ? 'Gaji Harian (IDR)' : 'Daily Wage (IDR)'}</label>
                 <input
                   type="text"
                   required
@@ -810,6 +822,22 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                   className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
                 />
               </div>
+
+              {projects.length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-[9px] font-bold text-gray-400 uppercase">{lang === 'id' ? 'Proyek Ditugaskan' : 'Assigned Project'}</label>
+                  <select
+                    value={empProjectId}
+                    onChange={(e) => setEmpProjectId(e.target.value)}
+                    className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                  >
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-gray-400">{lang === 'id' ? 'Pegawai hanya muncul di absensi proyek ini' : 'Employee will only appear in this project\'s attendance'}</p>
+                </div>
+              )}
 
               <button
                 type="submit"
@@ -834,6 +862,11 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                     <div className="flex-1 min-w-0">
                       <span className="font-bold text-gray-900 dark:text-white block truncate">{e.name}</span>
                       <p className="text-[10px] text-gray-400">{e.role}</p>
+                      {e.assignedProjectId && (
+                        <span className="inline-block mt-0.5 text-[9px] font-bold text-orange-600 bg-orange-50 dark:bg-orange-950/20 px-1.5 py-0.5 rounded">
+                          {projects.find(p => p.id === e.assignedProjectId)?.name || '—'}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="font-mono font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap">
@@ -1165,6 +1198,22 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                   className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl font-mono"
                 />
               </div>
+
+              {projects.length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">{lang === 'id' ? 'Proyek Ditugaskan' : 'Assigned Project'}</label>
+                  <select
+                    value={editingEmployee.assignedProjectId || ''}
+                    onChange={(e) => setEditingEmployee({ ...editingEmployee, assignedProjectId: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl"
+                  >
+                    <option value="">{lang === 'id' ? '— Semua Proyek (tanpa assignment) —' : '— All Projects (unassigned) —'}</option>
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
