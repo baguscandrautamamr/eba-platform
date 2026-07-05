@@ -86,6 +86,8 @@ export interface Overtime {
   hourlyRate: number;
   totalAmount: number;
   note: string;
+  projectId?: string;
+  projectName?: string;
 }
 
 export interface OtherExpense {

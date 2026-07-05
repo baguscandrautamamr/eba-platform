@@ -641,6 +641,9 @@ export default function App() {
               projects={projects}
               materials={materials}
               otherExpenses={otherExpenses}
+              overtimes={overtimes}
+              attendance={attendance}
+              employees={employees}
               onAddProject={handleAddProject}
               onUpdateProject={handleUpdateProject}
               onDeleteProject={handleDeleteProject}
