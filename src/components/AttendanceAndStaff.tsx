@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Employee, Attendance, Kasbon, Overtime, Language, UserRole } from '../types';
+import { Employee, Attendance, Kasbon, Overtime, Language, UserRole, Project } from '../types';
 import { Plus, Users, Calendar, Clock, DollarSign, FileText, CheckCircle, Lock, Printer, Share2, Search, Edit2, Trash2 } from 'lucide-react';
 import { formatNumberInput, parseFormattedNumber } from '../utils/currency';
 
@@ -8,6 +8,7 @@ interface AttendanceAndStaffProps {
   attendance: Attendance[];
   kasbons: Kasbon[];
   overtimes: Overtime[];
+  projects?: Project[];
   onAddEmployee: (emp: Omit<Employee, 'id'>) => void;
   onUpdateEmployee?: (emp: Employee) => void;
   onDeleteEmployee?: (id: string) => void;
@@ -27,6 +28,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   attendance,
   kasbons,
   overtimes,
+  projects = [],
   onAddEmployee,
   onUpdateEmployee,
   onDeleteEmployee,
@@ -81,6 +83,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
 
   // Attendance Form
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedAttProjectId, setSelectedAttProjectId] = useState(projects[0]?.id || '');
   const [dailyPresence, setDailyPresence] = useState<Record<string, { status: 'hadir' | 'absen' | 'izin' | 'sakit'; note: string }>>(
     employees.reduce((acc, emp) => ({
       ...acc,
@@ -139,6 +142,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
 
   const handleAttendanceSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const selectedProj = projects.find(p => p.id === selectedAttProjectId);
     const records = employees.map(emp => {
       const state = dailyPresence[emp.id] || { status: 'hadir', note: '' };
       return {
@@ -146,7 +150,9 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
         employeeId: emp.id,
         employeeName: emp.name,
         status: state.status,
-        note: state.note
+        note: state.note,
+        projectId: selectedProj?.id || '',
+        projectName: selectedProj?.name || ''
       };
     });
     onLogAttendance(records);
@@ -436,14 +442,27 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Calendar size={14} className="text-gray-400" />
-              <input
-                type="date"
-                value={attendanceDate}
-                onChange={(e) => setAttendanceDate(e.target.value)}
-                className="px-3 py-1.5 text-xs border rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
-              />
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              {projects.length > 0 && (
+                <select
+                  value={selectedAttProjectId}
+                  onChange={(e) => setSelectedAttProjectId(e.target.value)}
+                  className="px-3 py-1.5 text-xs border rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                >
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              )}
+              <div className="flex items-center gap-2">
+                <Calendar size={14} className="text-gray-400" />
+                <input
+                  type="date"
+                  value={attendanceDate}
+                  onChange={(e) => setAttendanceDate(e.target.value)}
+                  className="px-3 py-1.5 text-xs border rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
+                />
+              </div>
             </div>
           </div>
 
@@ -538,15 +557,19 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                             <input
                               type="number"
                               min="1"
-                              value={inlineOvertimes[emp.id]?.hours || 2}
-                              onChange={(e) => setInlineOvertimes({
-                                ...inlineOvertimes,
-                                [emp.id]: {
-                                  ...inlineOvertimes[emp.id],
-                                  hours: Number(e.target.value)
-                                }
-                              })}
-                              className="w-12 p-1 text-center border border-orange-200 dark:border-orange-900/40 rounded bg-white dark:bg-gray-900 text-gray-905 dark:text-white"
+                              value={inlineOvertimes[emp.id]?.hours ?? ''}
+                              onFocus={(e) => e.currentTarget.select()}
+                              onChange={(e) => {
+                                const cleaned = e.target.value.replace(/^0+(?=\d)/, '');
+                                setInlineOvertimes({
+                                  ...inlineOvertimes,
+                                  [emp.id]: {
+                                    ...inlineOvertimes[emp.id],
+                                    hours: cleaned === '' ? 0 : Number(cleaned)
+                                  }
+                                });
+                              }}
+                              className="w-14 p-1.5 text-center border border-orange-200 dark:border-orange-900/40 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                             />
                           </div>
                           <div className="flex-1 flex items-center gap-1">
@@ -621,8 +644,12 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                     type="number"
                     min="1"
                     required
-                    value={ovHours}
-                    onChange={(e) => setOvHours(Number(e.target.value))}
+                    value={ovHours || ''}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => {
+                      const cleaned = e.target.value.replace(/^0+(?=\d)/, '');
+                      setOvHours(cleaned === '' ? 0 : Number(cleaned));
+                    }}
                     className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
                   />
                 </div>
