@@ -1141,18 +1141,56 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                   {lang === 'id' ? 'Dihitung otomatis dari gaji harian ÷ 8 jam kerja normal' : 'Auto-calculated from daily wage ÷ 8 normal work hours'}
                 </p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[280px] overflow-y-auto pr-1">
                 {employees.map(emp => (
-                  <div key={emp.id} className="flex items-center justify-between p-2.5 bg-gray-50/60 dark:bg-gray-900/20 border border-gray-100 dark:border-gray-800 rounded-xl text-xs">
-                    <div className="min-w-0">
+                  <div key={emp.id} className="flex items-center justify-between p-2.5 bg-gray-50/60 dark:bg-gray-900/20 border border-gray-100 dark:border-gray-800 rounded-xl text-xs gap-2">
+                    <div className="min-w-0 flex-1">
                       <span className="font-bold text-gray-900 dark:text-white block truncate">{emp.name}</span>
                       <span className="text-[10px] text-gray-400">{emp.role}</span>
                     </div>
-                    {!isMandor && (
-                      <span className="font-mono font-bold text-orange-600 dark:text-orange-400 whitespace-nowrap ml-2">
-                        {formatRupiah(Math.round(emp.dailySalary / 8))}/{lang === 'id' ? 'jam' : 'hr'}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {!isMandor && (
+                        <span className="font-mono font-bold text-orange-600 dark:text-orange-400 whitespace-nowrap">
+                          {formatRupiah(Math.round(emp.dailySalary / 8))}/{lang === 'id' ? 'jam' : 'hr'}
+                        </span>
+                      )}
+                      {!isMandor && (
+                        <div className="flex items-center gap-1 pl-1.5 border-l border-gray-200 dark:border-gray-700">
+                          <button
+                            onClick={() => setEditingEmployee(emp)}
+                            className="text-orange-600 hover:text-orange-800 p-1 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-950/20 transition-colors"
+                            title={lang === 'id' ? 'Edit' : 'Edit'}
+                          >
+                            <Edit2 size={12} />
+                          </button>
+                          {deleteConfirmEmpId === emp.id ? (
+                            <div className="flex items-center gap-1 bg-red-50 dark:bg-red-950/20 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900/30">
+                              <button
+                                onClick={() => { if (onDeleteEmployee) onDeleteEmployee(emp.id); setDeleteConfirmEmpId(null); }}
+                                className="text-[9px] font-extrabold text-red-650 hover:text-red-800 uppercase tracking-wider"
+                              >
+                                {lang === 'id' ? 'Ya' : 'Yes'}
+                              </button>
+                              <span className="text-[9px] text-gray-400">|</span>
+                              <button
+                                onClick={() => setDeleteConfirmEmpId(null)}
+                                className="text-[9px] font-extrabold text-gray-550 hover:text-gray-750 dark:text-gray-400 dark:hover:text-gray-200 uppercase tracking-wider"
+                              >
+                                {lang === 'id' ? 'Batal' : 'No'}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setDeleteConfirmEmpId(emp.id)}
+                              className="text-red-500 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                              title={lang === 'id' ? 'Hapus' : 'Delete'}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
