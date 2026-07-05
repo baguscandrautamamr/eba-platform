@@ -15,16 +15,6 @@ import {
   UploadQueueItem
 } from './types';
 import { translations } from './utils/lang';
-import { 
-  initialProjects, 
-  initialEmployees, 
-  initialMaterials, 
-  initialAttendance, 
-  initialKasbons, 
-  initialOvertimes, 
-  initialOtherExpenses, 
-  initialProgressPhotos 
-} from './data/initialData';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
 import { ProjectList } from './components/ProjectList';
@@ -72,14 +62,14 @@ export default function App() {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
 
   // Core Datasets
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
-  const [materials, setMaterials] = useState<MaterialTransaction[]>(initialMaterials);
-  const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
-  const [attendance, setAttendance] = useState<Attendance[]>(initialAttendance);
-  const [kasbons, setKasbons] = useState<Kasbon[]>(initialKasbons);
-  const [overtimes, setOvertimes] = useState<Overtime[]>(initialOvertimes);
-  const [otherExpenses, setOtherExpenses] = useState<OtherExpense[]>(initialOtherExpenses);
-  const [photos, setPhotos] = useState<ProgressPhoto[]>(initialProgressPhotos);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [materials, setMaterials] = useState<MaterialTransaction[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [kasbons, setKasbons] = useState<Kasbon[]>([]);
+  const [overtimes, setOvertimes] = useState<Overtime[]>([]);
+  const [otherExpenses, setOtherExpenses] = useState<OtherExpense[]>([]);
+  const [photos, setPhotos] = useState<ProgressPhoto[]>([]);
   
   // Offline Sync Queue state
   const [offlineQueue, setOfflineQueue] = useState<UploadQueueItem[]>([]);
