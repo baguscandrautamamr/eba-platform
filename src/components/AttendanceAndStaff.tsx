@@ -85,13 +85,11 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   );
 
   /**
-   * Tarif lembur per jam untuk seorang pegawai:
-   * - Kalau ada customOvertimeRate (di-set manual lewat tombol Edit di kartu Tarif Lembur), pakai itu.
-   * - Kalau tidak, hitung otomatis dari gaji harian ÷ 8 jam kerja normal.
+   * Tarif lembur per jam untuk seorang pegawai — MURNI diatur manual per pegawai.
+   * Tidak ada perhitungan otomatis dari gaji harian. Kalau belum diatur, return 0.
    */
   const getOvertimeRate = (emp: Employee): number => {
-    if (emp.customOvertimeRate && emp.customOvertimeRate > 0) return emp.customOvertimeRate;
-    return Math.round(emp.dailySalary / 8);
+    return emp.customOvertimeRate || 0;
   };
 
   const filteredOvertimes = overtimes.filter(o => 
@@ -1152,7 +1150,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                   {lang === 'id' ? 'Tarif Lembur per Pegawai' : 'Overtime Rate per Employee'}
                 </h4>
                 <p className="text-[10px] text-gray-400 mt-0.5">
-                  {lang === 'id' ? 'Dihitung otomatis dari gaji harian ÷ 8 jam kerja normal — bisa diedit manual per pegawai' : 'Auto-calculated from daily wage ÷ 8 normal work hours — editable per employee'}
+                  {lang === 'id' ? 'Atur tarif lembur per jam untuk masing-masing pegawai' : 'Set the hourly overtime rate for each employee'}
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[280px] overflow-y-auto pr-1">
@@ -1161,24 +1159,25 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                     <div className="min-w-0 flex-1">
                       <span className="font-bold text-gray-900 dark:text-white block truncate">{emp.name}</span>
                       <span className="text-[10px] text-gray-400">{emp.role}</span>
-                      {emp.customOvertimeRate && emp.customOvertimeRate > 0 && (
-                        <span className="text-[8px] text-purple-600 dark:text-purple-400 font-bold block">
-                          {lang === 'id' ? 'Tarif manual' : 'Manual rate'}
-                        </span>
-                      )}
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       {!isMandor && (
-                        <span className="font-mono font-bold text-orange-600 dark:text-orange-400 whitespace-nowrap">
-                          {formatRupiah(getOvertimeRate(emp))}/{lang === 'id' ? 'jam' : 'hr'}
-                        </span>
+                        getOvertimeRate(emp) > 0 ? (
+                          <span className="font-mono font-bold text-orange-600 dark:text-orange-400 whitespace-nowrap">
+                            {formatRupiah(getOvertimeRate(emp))}/{lang === 'id' ? 'jam' : 'hr'}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-gray-400 italic whitespace-nowrap">
+                            {lang === 'id' ? 'Belum diatur' : 'Not set'}
+                          </span>
+                        )
                       )}
                       {!isMandor && (
                         <div className="flex items-center gap-1 pl-1.5 border-l border-gray-200 dark:border-gray-700">
                           <button
                             onClick={() => {
                               setEditingRateEmp(emp);
-                              setEditingRateValue(String(getOvertimeRate(emp)));
+                              setEditingRateValue(getOvertimeRate(emp) > 0 ? String(getOvertimeRate(emp)) : '');
                             }}
                             className="text-orange-600 hover:text-orange-800 p-1 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-950/20 transition-colors"
                             title={lang === 'id' ? 'Edit Tarif Lembur' : 'Edit Overtime Rate'}
@@ -1701,50 +1700,34 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
               <input
                 type="text"
                 inputMode="numeric"
-                value={formatNumberInput(editingRateValue)}
+                autoFocus
+                placeholder={lang === 'id' ? 'Masukkan nominal, mis. 25.000' : 'Enter amount, e.g. 25,000'}
+                value={editingRateValue ? formatNumberInput(editingRateValue) : ''}
                 onFocus={(e) => e.currentTarget.select()}
                 onChange={(e) => setEditingRateValue(parseFormattedNumber(e.target.value).toString())}
                 className="w-full p-2.5 text-sm font-mono border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
               />
-              <p className="text-[9px] text-gray-400">
-                {lang === 'id'
-                  ? `Otomatis (dari gaji harian ÷ 8): ${formatRupiah(Math.round(editingRateEmp.dailySalary / 8))}/jam`
-                  : `Automatic (from daily wage ÷ 8): ${formatRupiah(Math.round(editingRateEmp.dailySalary / 8))}/hr`}
-              </p>
             </div>
 
-            <div className="flex justify-between items-center pt-2 border-t border-gray-100 dark:border-gray-700">
+            <div className="flex justify-end items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+              <button
+                type="button"
+                onClick={() => setEditingRateEmp(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                {lang === 'id' ? 'Batal' : 'Cancel'}
+              </button>
               <button
                 type="button"
                 onClick={() => {
-                  // Reset ke tarif otomatis (hapus override manual)
-                  if (onUpdateEmployee) onUpdateEmployee({ ...editingRateEmp, customOvertimeRate: undefined });
+                  const newRate = parseFormattedNumber(editingRateValue);
+                  if (onUpdateEmployee) onUpdateEmployee({ ...editingRateEmp, customOvertimeRate: newRate > 0 ? newRate : undefined });
                   setEditingRateEmp(null);
                 }}
-                className="text-[10px] font-bold text-gray-400 hover:text-gray-600 underline"
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl"
               >
-                {lang === 'id' ? 'Pakai Otomatis' : 'Use Automatic'}
+                {lang === 'id' ? 'Simpan' : 'Save'}
               </button>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingRateEmp(null)}
-                  className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                >
-                  {lang === 'id' ? 'Batal' : 'Cancel'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const newRate = parseFormattedNumber(editingRateValue);
-                    if (onUpdateEmployee) onUpdateEmployee({ ...editingRateEmp, customOvertimeRate: newRate > 0 ? newRate : undefined });
-                    setEditingRateEmp(null);
-                  }}
-                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl"
-                >
-                  {lang === 'id' ? 'Simpan' : 'Save'}
-                </button>
-              </div>
             </div>
           </div>
         </div>
