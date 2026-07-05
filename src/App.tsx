@@ -752,6 +752,7 @@ export default function App() {
               employees={employees}
               attendance={attendance}
               overtimes={overtimes}
+              otherExpenses={otherExpenses}
               photos={photos}
               lang={lang}
             />
