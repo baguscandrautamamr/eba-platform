@@ -49,6 +49,7 @@ import {
   X
 } from 'lucide-react';
 import { registerAutoSync, triggerAutoSync, cleanPhotosForSync } from './utils/autoSync';
+import { getGasUrl } from './utils/googleDrive';
 
 export default function App() {
   // System State
@@ -140,6 +141,53 @@ export default function App() {
     if (savedExpenses) setOtherExpenses(JSON.parse(savedExpenses));
     if (savedPhotos) setPhotos(JSON.parse(savedPhotos));
   }, []);
+
+  // ============================================================
+  // Fetch daftar proyek & pegawai terbaru dari cloud.
+  // Dipakai otomatis untuk role User (karena tidak punya akses Dashboard),
+  // dan juga bisa dipicu manual via tombol "Sinkronkan Proyek".
+  // ============================================================
+  const [isSyncingProjects, setIsSyncingProjects] = useState(false);
+  const fetchProjectsAndEmployeesFromCloud = async () => {
+    const gasUrl = getGasUrl();
+    if (!gasUrl || typeof navigator === 'undefined' || !navigator.onLine) return false;
+
+    setIsSyncingProjects(true);
+    try {
+      const res = await fetch(gasUrl, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'sync_db', type: 'get' }),
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+      });
+      const data = await res.json();
+      if (data.success && data.found && data.db) {
+        if (Array.isArray(data.db.projects) && data.db.projects.length > 0) {
+          setProjects(data.db.projects);
+          saveToLocalStorage('EBA_PROJECTS', data.db.projects);
+        }
+        if (Array.isArray(data.db.employees) && data.db.employees.length > 0) {
+          setEmployees(data.db.employees);
+          saveToLocalStorage('EBA_EMPLOYEES', data.db.employees);
+        }
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.warn('[AutoFetch] Gagal tarik data proyek:', e);
+      return false;
+    } finally {
+      setIsSyncingProjects(false);
+    }
+  };
+
+  // Auto-fetch khusus role User: device baru install tidak punya
+  // akses ke Dashboard/tombol "Ambil dari Cloud" (khusus Admin).
+  // Jadi otomatis tarik daftar proyek & pegawai terbaru saat app dibuka.
+  useEffect(() => {
+    if (role === 'user') {
+      fetchProjectsAndEmployeesFromCloud();
+    }
+  }, [role]);
 
   const DATA_KEYS = new Set(['EBA_PROJECTS', 'EBA_MATERIALS', 'EBA_EMPLOYEES', 'EBA_ATTENDANCE', 'EBA_KASBONS', 'EBA_OVERTIMES', 'EBA_EXPENSES', 'EBA_PHOTOS']);
 
@@ -664,6 +712,8 @@ export default function App() {
               isOffline={isOffline}
               offlineQueue={offlineQueue}
               onAddOfflineItem={handleAddOfflineItem}
+              onRefreshProjects={fetchProjectsAndEmployeesFromCloud}
+              isSyncingProjects={isSyncingProjects}
               lang={lang}
               role={role}
             />
