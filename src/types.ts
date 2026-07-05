@@ -64,6 +64,8 @@ export interface Attendance {
   employeeName: string;
   status: 'hadir' | 'absen' | 'izin' | 'sakit';
   note?: string;
+  projectId?: string;
+  projectName?: string;
 }
 
 export interface Kasbon {
