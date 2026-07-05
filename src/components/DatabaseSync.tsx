@@ -36,7 +36,6 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
   } | null>(null);
 
   const [copiedCode, setCopiedCode] = useState(false);
-  const [copiedSetup, setCopiedSetup] = useState(false);
 
   useEffect(() => {
     const url = getGasUrl() || '';
@@ -291,263 +290,222 @@ export const DatabaseSync: React.FC<DatabaseSyncProps> = ({
     const code = `function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
-    
-    // Support delete action
+
+    // === DELETE FILE ===
     if (data.action === 'delete') {
-      var fileId = data.fileId;
-      if (!fileId) {
-        throw new Error('fileId is required for delete action');
-      }
-      var file = DriveApp.getFileById(fileId);
-      file.setTrashed(true);
-      return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'File moved to trash' }))
-        .setMimeType(ContentService.MimeType.JSON);
+      DriveApp.getFileById(data.fileId).setTrashed(true);
+      return resp_({ success: true });
     }
-    
-    // Support Database Sync Action (JSON file storage in Google Drive)
+
+    // === SYNC DATABASE (CEPAT -- hanya tulis JSON ke Drive) ===
     if (data.action === 'sync_db') {
-      var folder;
-      var folders = DriveApp.getFoldersByName("EBA Progress Photos");
-      if (folders.hasNext()) {
-        folder = folders.next();
-      } else {
-        folder = DriveApp.createFolder("EBA Progress Photos");
-      }
-      
-      var fileName = "eba_project_db.json";
-      var files = folder.getFilesByName(fileName);
-      var dbFile;
-      
+      var folder = folder_();
+      var fn = "eba_project_db.json";
+      var files = folder.getFilesByName(fn);
+
       if (data.type === 'get') {
         if (files.hasNext()) {
-          dbFile = files.next();
-          var content = dbFile.getBlob().getDataAsString();
-          return ContentService.createTextOutput(JSON.stringify({ success: true, found: true, db: JSON.parse(content) }))
-            .setMimeType(ContentService.MimeType.JSON);
-        } else {
-          return ContentService.createTextOutput(JSON.stringify({ success: true, found: false, message: 'No backup file found' }))
-            .setMimeType(ContentService.MimeType.JSON);
+          var c = files.next().getBlob().getDataAsString();
+          return resp_({ success: true, found: true, db: JSON.parse(c) });
         }
-      } else if (data.type === 'put') {
-        var jsonString = JSON.stringify(data.db, null, 2);
-        if (files.hasNext()) {
-          dbFile = files.next();
-          dbFile.setContent(jsonString);
-        } else {
-          dbFile = folder.createFile(fileName, jsonString, "application/json");
-        }
-        
-        // --- GOOGLE SHEETS AUTOMATIC EXPORT ---
-        // This function is declared in setup.gs
-        try {
-          if (typeof exportDatabaseToSheets === 'function') {
-            exportDatabaseToSheets(data.db, folder);
-          }
-        } catch (sheetError) {
-          console.error("Sheet generation error: " + sheetError.toString());
-        }
-        
-        return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Database synced successfully and spreadsheet generated' }))
-          .setMimeType(ContentService.MimeType.JSON);
+        return resp_({ success: true, found: false });
+      }
+
+      if (data.type === 'put') {
+        var json = JSON.stringify(data.db, null, 2);
+        if (files.hasNext()) { files.next().setContent(json); }
+        else { folder.createFile(fn, json, "application/json"); }
+
+        // TIDAK export ke Sheets di sini -- supaya sync tetap cepat.
+        // Sheets di-update via action 'export_sheets' (manual) atau trigger terjadwal.
+        return resp_({ success: true, message: 'Synced to Drive (fast path)' });
       }
     }
-    
-    var base64Data = data.image;
-    if (base64Data.indexOf(",") > -1) {
-      base64Data = base64Data.split(",")[1];
+
+    // === EXPORT KE SHEETS -- dipanggil terpisah (manual/terjadwal), bukan tiap sync ===
+    if (data.action === 'export_sheets') {
+      var folder = folder_();
+      var fn = "eba_project_db.json";
+      var files = folder.getFilesByName(fn);
+      if (!files.hasNext()) {
+        return resp_({ success: false, error: 'Belum ada data untuk di-export' });
+      }
+      var db = JSON.parse(files.next().getBlob().getDataAsString());
+      exportToSheets_(db, folder);
+      return resp_({ success: true, message: 'Sheets berhasil diupdate' });
     }
-    
-    var decoded = Utilities.base64Decode(base64Data);
-    var blob = Utilities.newBlob(decoded, 'image/jpeg', data.filename);
-    
-    var folder;
-    var folders = DriveApp.getFoldersByName("EBA Progress Photos");
-    if (folders.hasNext()) {
-      folder = folders.next();
-    } else {
-      folder = DriveApp.createFolder("EBA Progress Photos");
-    }
-    
+
+    // === UPLOAD PHOTO ===
+    var b64 = data.image;
+    if (b64.indexOf(",") > -1) b64 = b64.split(",")[1];
+    var blob = Utilities.newBlob(Utilities.base64Decode(b64), "image/jpeg", data.filename);
+    var folder = folder_();
     var file = folder.createFile(blob);
-    file.setDescription("Uploaded from EBA Contractor Platform by " + (data.userRole || "unknown"));
+    file.setDescription("EBA upload by " + (data.userRole || "unknown"));
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    
-    var webViewLink = file.getUrl();
-    var result = {
-      success: true,
-      fileId: file.getId(),
-      webViewLink: webViewLink
-    };
-    
-    // --- AUTOMATIC PHOTO METADATA SYNC INTO EBA_PROJECT_DB.JSON ---
+
+    var result = { success: true, fileId: file.getId(), webViewLink: file.getUrl() };
+
     if (data.photoMeta) {
       try {
-        var fileName = "eba_project_db.json";
-        var files = folder.getFilesByName(fileName);
-        var dbFile;
-        var db = null;
-        if (files.hasNext()) {
-          dbFile = files.next();
-          var content = dbFile.getBlob().getDataAsString();
-          db = JSON.parse(content);
-        }
-        
-        if (db) {
-          if (!db.photos) {
-            db.photos = [];
-          }
-          
-          // Check if photo is already in the list to avoid duplicate
+        var dbFn = "eba_project_db.json";
+        var dbFiles = folder.getFilesByName(dbFn);
+        if (dbFiles.hasNext()) {
+          var dbFile = dbFiles.next();
+          var db = JSON.parse(dbFile.getBlob().getDataAsString());
+          if (!db.photos) db.photos = [];
+
           var exists = false;
           for (var i = 0; i < db.photos.length; i++) {
-            if (db.photos[i].id === data.photoMeta.id) {
-              exists = true;
-              break;
-            }
+            if (db.photos[i].id === data.photoMeta.id) { exists = true; break; }
           }
-          
+
           if (!exists) {
-            var newPhoto = {
+            db.photos.unshift({
               id: data.photoMeta.id,
               projectId: data.photoMeta.projectId || "",
               projectName: data.photoMeta.projectName || "",
               date: data.photoMeta.date || "",
               time: data.photoMeta.time || "",
               notes: data.photoMeta.notes || "",
-              images: [webViewLink],
+              images: [file.getUrl()],
               gpsLocation: data.photoMeta.gpsLocation || "",
               watermarked: true,
-              driveUrls: [webViewLink]
-            };
-            db.photos.unshift(newPhoto);
+              driveUrls: [file.getUrl()],
+              roomName: data.photoMeta.roomName || ""
+            });
             db.lastUpdated = Date.now();
-            
             dbFile.setContent(JSON.stringify(db, null, 2));
-            
-            // Sync with spreadsheets automatically too!
-            if (typeof exportDatabaseToSheets === 'function') {
-              exportDatabaseToSheets(db, folder);
-            }
           }
         }
-      } catch (dbSyncError) {
-        console.error("Failed to automatically append photo to db JSON: " + dbSyncError.toString());
-      }
+      } catch(ex) { /* photo metadata sync failed, photo still uploaded */ }
     }
-    
-    return ContentService.createTextOutput(JSON.stringify(result))
-      .setMimeType(ContentService.MimeType.JSON);
-      
-  } catch (error) {
-    var result = {
-      success: false,
-      error: error.toString()
-    };
-    return ContentService.createTextOutput(JSON.stringify(result))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}`;
-    navigator.clipboard.writeText(code);
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
-  };
 
-  const handleCopySetupGs = () => {
-    const code = `/**
- * Automatically syncs the entire backup database JSON into structured sheets in Google Sheets.
- * Place this in a separate file named 'setup.gs' in your Apps Script project.
- */
-function exportDatabaseToSheets(db, folder) {
+    return resp_(result);
+  } catch (error) {
+    return resp_({ success: false, error: error.toString() });
+  }
+}
+
+function doGet(e) {
+  return resp_({ success: true, message: "EBA API aktif (fast sync mode)" });
+}
+
+function scheduledExportToSheets() {
+  var folder = folder_();
+  var files = folder.getFilesByName("eba_project_db.json");
+  if (!files.hasNext()) return;
+  var db = JSON.parse(files.next().getBlob().getDataAsString());
+  exportToSheets_(db, folder);
+}
+
+function exportToSheets_(db, folder) {
   var ss;
   var ssFiles = folder.getFilesByName("EBA Contractor Database");
   if (ssFiles.hasNext()) {
     ss = SpreadsheetApp.open(ssFiles.next());
   } else {
     ss = SpreadsheetApp.create("EBA Contractor Database");
-    var ssFile = DriveApp.getFileById(ss.getId());
-    folder.addFile(ssFile);
-    DriveApp.getRootFolder().removeFile(ssFile);
+    var f = DriveApp.getFileById(ss.getId());
+    folder.addFile(f);
+    DriveApp.getRootFolder().removeFile(f);
   }
-  
-  // Helper function to overwrite or create sheet tabs
-  var updateSheet = function(sheetName, headers, rows) {
-    var sheet = ss.getSheetByName(sheetName);
-    if (sheet) {
-      sheet.clear();
-    } else {
-      sheet = ss.insertSheet(sheetName);
-    }
-    sheet.appendRow(headers);
+
+  var upd = function(name, headers, rows) {
+    var sh = ss.getSheetByName(name);
+    if (sh) { sh.clear(); } else { sh = ss.insertSheet(name); }
+    sh.appendRow(headers);
     if (rows && rows.length > 0) {
-      sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+      sh.getRange(2, 1, rows.length, headers.length).setValues(rows);
     }
-    // Format header row
-    var headerRange = sheet.getRange(1, 1, 1, headers.length);
-    headerRange.setBackground("#ea580c").setFontColor("#ffffff").setFontWeight("bold");
-    sheet.setFrozenRows(1);
-    for (var col = 1; col <= headers.length; col++) {
-      sheet.autoResizeColumn(col);
-    }
+    sh.getRange(1, 1, 1, headers.length).setBackground("#ea580c").setFontColor("#fff").setFontWeight("bold");
+    sh.setFrozenRows(1);
+    for (var c = 1; c <= headers.length; c++) sh.autoResizeColumn(c);
   };
-  
-  // 1. Projects Sheet
-  var projHeaders = ["Project ID", "Name", "Client", "Location", "Budget", "Spent", "Start Date", "End Date", "Status", "Notes"];
-  var projRows = (db.projects || []).map(function(p) {
-    return [p.id, p.name, p.client, p.location, p.budget, p.spent || 0, p.startDate, p.endDate, p.status, p.notes || ""];
+
+  upd("Projects", ["ID", "Nama", "Budget", "Mulai", "Selesai"],
+    (db.projects || []).map(function(p) {
+      return [p.id||"", p.name||"", p.budget||0, p.startDate||"", p.endDate||""];
+    })
+  );
+
+  var invRows = [];
+  (db.projects || []).forEach(function(p) {
+    (p.invoices || []).forEach(function(inv) {
+      invRows.push([inv.id||"", p.id||"", inv.invoiceNumber||"", inv.amount||0, inv.dueDate||"", inv.isPaid?"YA":"TIDAK", inv.title||""]);
+    });
   });
-  updateSheet("Projects", projHeaders, projRows);
-  
-  // 2. Employees Sheet
-  var empHeaders = ["Employee ID", "Name", "Role", "Phone", "Daily Rate", "Status"];
-  var empRows = (db.employees || []).map(function(e) {
-    return [e.id, e.name, e.role, e.phone, e.dailyRate, e.status];
-  });
-  updateSheet("Employees", empHeaders, empRows);
-  
-  // 3. Attendance Sheet
-  var attHeaders = ["Log ID", "Date", "Employee Name", "Role", "Status", "Check In Time", "Check Out Time", "Notes"];
-  var attRows = (db.attendance || []).map(function(a) {
-    return [a.id, a.date, a.employeeName, a.employeeRole || "", a.status, a.checkIn || "", a.checkOut || "", a.notes || ""];
-  });
-  updateSheet("Attendance", attHeaders, attRows);
-  
-  // 4. Materials Sheet
-  var matHeaders = ["Transaction ID", "Project ID", "Date", "Material Name", "Type", "Qty", "Unit", "Price", "Total", "Supplier", "Logged By"];
-  var matRows = (db.materials || []).map(function(m) {
-    return [m.id, m.projectId, m.date, m.name, m.type, m.quantity, m.unit, m.price, m.quantity * m.price, m.supplier || "", m.loggedBy || ""];
-  });
-  updateSheet("Materials", matHeaders, matRows);
-  
-  // 5. Kasbons Sheet
-  var kasHeaders = ["Kasbon ID", "Employee Name", "Date", "Amount", "Status", "Notes"];
-  var kasRows = (db.kasbons || []).map(function(k) {
-    return [k.id, k.employeeName, k.date, k.amount, k.status, k.notes || ""];
-  });
-  updateSheet("Kasbons", kasHeaders, kasRows);
-  
-  // 6. Overtimes Sheet
-  var otHeaders = ["Overtime ID", "Employee Name", "Date", "Hours", "Hourly Rate", "Total Pay", "Notes"];
-  var otRows = (db.overtimes || []).map(function(o) {
-    return [o.id, o.employeeName, o.date, o.hours, o.hourlyRate, o.hours * o.hourlyRate, o.notes || ""];
-  });
-  updateSheet("Overtimes", otHeaders, otRows);
-  
-  // 7. Other Expenses Sheet
-  var expHeaders = ["Expense ID", "Project ID", "Date", "Category", "Amount", "Description", "Logged By"];
-  var expRows = (db.otherExpenses || []).map(function(x) {
-    return [x.id, x.projectId, x.date, x.category, x.amount, x.description, x.loggedBy || ""];
-  });
-  updateSheet("Other Expenses", expHeaders, expRows);
-  
-  // Delete default Sheet1 if exists
-  var defaultSheet = ss.getSheetByName("Sheet1") || ss.getSheetByName("Sheet 1");
-  if (defaultSheet && ss.getSheets().length > 1) {
-    ss.deleteSheet(defaultSheet);
+  upd("Invoices", ["ID", "Project ID", "No Invoice", "Jumlah", "Jatuh Tempo", "Lunas", "Judul"], invRows);
+
+  upd("Employees", ["ID", "Nama", "Role", "Gaji Harian"],
+    (db.employees || []).map(function(e) {
+      return [e.id||"", e.name||"", e.role||"", e.dailySalary||e.dailyRate||0];
+    })
+  );
+
+  upd("Attendance", ["ID", "Tanggal", "Employee ID", "Nama", "Status", "Catatan", "Project ID", "Nama Proyek"],
+    (db.attendance || []).map(function(a) {
+      return [a.id||"", a.date||"", a.employeeId||"", a.employeeName||"", a.status||"", a.note||"", a.projectId||"", a.projectName||""];
+    })
+  );
+
+  upd("Materials", ["ID", "Project ID", "Nama Proyek", "Tanggal", "Tipe", "Barang", "Qty", "Satuan", "Harga/Unit", "Total", "Catatan"],
+    (db.materials || []).map(function(m) {
+      return [m.id||"", m.projectId||"", m.projectName||"", m.date||"", m.type||"", m.itemName||"", m.quantity||0, m.unit||"", m.pricePerUnit||0, m.totalPrice||0, m.note||""];
+    })
+  );
+
+  upd("Kasbons", ["ID", "Tanggal", "Employee ID", "Nama", "Jumlah", "Catatan"],
+    (db.kasbons || []).map(function(k) {
+      return [k.id||"", k.date||"", k.employeeId||"", k.employeeName||"", k.amount||0, k.note||""];
+    })
+  );
+
+  upd("Overtimes", ["ID", "Tanggal", "Employee ID", "Nama", "Jam", "Rate/Jam", "Total", "Catatan", "Project ID", "Nama Proyek"],
+    (db.overtimes || []).map(function(o) {
+      return [o.id||"", o.date||"", o.employeeId||"", o.employeeName||"", o.hours||0, o.hourlyRate||0, o.totalAmount||0, o.note||"", o.projectId||"", o.projectName||""];
+    })
+  );
+
+  upd("OtherExpenses", ["ID", "Project ID", "Nama Proyek", "Tanggal", "Kategori", "Jumlah", "Catatan"],
+    (db.otherExpenses || []).map(function(x) {
+      return [x.id||"", x.projectId||"", x.projectName||"", x.date||"", x.category||"", x.amount||0, x.note||""];
+    })
+  );
+
+  upd("Photos", ["ID", "Project ID", "Nama Proyek", "Tanggal", "Waktu", "Catatan", "GPS", "Ruangan", "Drive URLs"],
+    (db.photos || []).map(function(p) {
+      return [p.id||"", p.projectId||"", p.projectName||"", p.date||"", p.time||"", p.notes||"", p.gpsLocation||"", p.roomName||"", (p.driveUrls||[]).join(", ")];
+    })
+  );
+
+  var def = ss.getSheetByName("Sheet1") || ss.getSheetByName("Sheet 1");
+  if (def && ss.getSheets().length > 1) ss.deleteSheet(def);
+
+  var old = ss.getSheetByName("Progress Photos");
+  if (old && ss.getSheets().length > 1) {
+    try { ss.deleteSheet(old); } catch(e) {}
   }
+}
+
+function folder_() {
+  var props = PropertiesService.getScriptProperties();
+  var cachedId = props.getProperty('EBA_FOLDER_ID');
+  if (cachedId) {
+    try { return DriveApp.getFolderById(cachedId); } catch (e) {}
+  }
+  var f = DriveApp.getFoldersByName("EBA Progress Photos");
+  var folder = f.hasNext() ? f.next() : DriveApp.createFolder("EBA Progress Photos");
+  props.setProperty('EBA_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+function resp_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }`;
     navigator.clipboard.writeText(code);
-    setCopiedSetup(true);
-    setTimeout(() => setCopiedSetup(false), 2000);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
   };
 
   if (role === 'tamu') {
@@ -770,62 +728,36 @@ function exportDatabaseToSheets(db, folder) {
           <ul className="text-[11px] text-gray-500 dark:text-gray-400 space-y-1.5 list-disc pl-4 leading-relaxed">
             <li>
               {lang === 'id' 
-                ? 'Pisahkan kode menjadi dua file di editor Apps Script Anda: code.gs (utama) dan setup.gs (untuk otomatisasi Excel).' 
-                : 'Separate the script into two files in your Apps Script editor: code.gs (main API) and setup.gs (for Excel automation).'}
+                ? 'Kode sekarang HANYA SATU FILE (Code.gs) — tidak perlu file setup.gs terpisah lagi.' 
+                : 'The code is now a SINGLE FILE (Code.gs) — no separate setup.gs file needed anymore.'}
             </li>
             <li className="text-orange-600 dark:text-orange-400 font-semibold">
               {lang === 'id'
-                ? '⚠️ PENTING: Setiap kali mengubah atau menambah kode, Anda WAJIB membuat Versi Baru! Caranya: Klik "Deploy" -> "Manage deployments" -> klik ikon Pensil (Edit) -> pilih "New version" di bagian Version, lalu klik "Deploy"!'
-                : '⚠️ IMPORTANT: Whenever you modify or add code, you MUST create a New Version! How: Click "Deploy" -> "Manage deployments" -> click Pencil icon (Edit) -> choose "New version" under Version, then click "Deploy"!'}
+                ? '\u26a0\ufe0f PENTING: Setiap kali mengubah atau menambah kode, Anda WAJIB membuat Versi Baru! Caranya: Klik "Deploy" -> "Manage deployments" -> klik ikon Pensil (Edit) -> pilih "New version" di bagian Version, lalu klik "Deploy"!'
+                : '\u26a0\ufe0f IMPORTANT: Whenever you modify or add code, you MUST create a New Version! How: Click "Deploy" -> "Manage deployments" -> click Pencil icon (Edit) -> choose "New version" under Version, then click "Deploy"!'}
             </li>
           </ul>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1.5">
-            {/* COPY CODE.GS BUTTON */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] font-bold text-gray-400 uppercase block tracking-wide">
-                1. {lang === 'id' ? 'File Utama' : 'Main File'} (code.gs)
-              </span>
-              <button
-                onClick={handleCopyCodeGs}
-                className="w-full flex items-center justify-center gap-1.5 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-[11px] font-bold text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-              >
-                {copiedCode ? (
-                  <>
-                    <Check size={13} className="text-emerald-500" />
-                    <span className="text-emerald-600 font-bold">{lang === 'id' ? 'Disalin!' : 'Copied!'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy size={13} />
-                    <span>{lang === 'id' ? 'Salin code.gs' : 'Copy code.gs'}</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* COPY SETUP.GS BUTTON */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] font-bold text-gray-400 uppercase block tracking-wide">
-                2. {lang === 'id' ? 'File Spreadsheet' : 'Excel File'} (setup.gs)
-              </span>
-              <button
-                onClick={handleCopySetupGs}
-                className="w-full flex items-center justify-center gap-1.5 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-[11px] font-bold text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-              >
-                {copiedSetup ? (
-                  <>
-                    <Check size={13} className="text-emerald-500" />
-                    <span className="text-emerald-600 font-bold">{lang === 'id' ? 'Disalin!' : 'Copied!'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy size={13} />
-                    <span>{lang === 'id' ? 'Salin setup.gs' : 'Copy setup.gs'}</span>
-                  </>
-                )}
-              </button>
-            </div>
+          <div className="pt-1.5">
+            <span className="text-[10px] font-bold text-gray-400 uppercase block tracking-wide mb-1.5">
+              {lang === 'id' ? 'File Utama (Code.gs) \u2014 versi terbaru' : 'Main File (Code.gs) \u2014 latest version'}
+            </span>
+            <button
+              onClick={handleCopyCodeGs}
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-[11px] font-bold text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+            >
+              {copiedCode ? (
+                <>
+                  <Check size={13} className="text-emerald-500" />
+                  <span className="text-emerald-600 font-bold">{lang === 'id' ? 'Disalin!' : 'Copied!'}</span>
+                </>
+              ) : (
+                <>
+                  <Copy size={13} />
+                  <span>{lang === 'id' ? 'Salin Code.gs' : 'Copy Code.gs'}</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}
