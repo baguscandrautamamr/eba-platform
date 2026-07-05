@@ -55,6 +55,7 @@ export interface Employee {
   name: string;
   role: string; // e.g. Tukang, Kenek, Mandor, ME Specialist
   dailySalary: number; // Daily wage
+  customOvertimeRate?: number; // Tarif lembur/jam manual (override dari gaji harian ÷ 8)
 }
 
 export interface Attendance {
