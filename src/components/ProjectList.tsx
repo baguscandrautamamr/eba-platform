@@ -245,7 +245,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   };
 
   const handlePrintBreakdown = (projName: string) => {
+    const originalTitle = document.title;
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const safeProjName = projName.replace(/[^a-zA-Z0-9]+/g, '_');
+    document.title = `EBA_PLATFORM_${safeProjName}_${timestamp}`;
     window.print();
+    // Kembalikan title asli setelah dialog print ditutup
+    setTimeout(() => { document.title = originalTitle; }, 500);
   };
 
   // If User role: hide all financial data

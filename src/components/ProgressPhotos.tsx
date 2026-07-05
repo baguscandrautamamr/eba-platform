@@ -2197,7 +2197,16 @@ function exportDatabaseToSheets(db, folder) {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => {
+                    const originalTitle = document.title;
+                    const activeProject = projects.find(p => p.id === selectedProjectFilter);
+                    const projLabel = activeProject?.name || (customPrintTitle || 'Semua_Proyek');
+                    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+                    const safeProjLabel = projLabel.replace(/[^a-zA-Z0-9]+/g, '_');
+                    document.title = `EBA_PLATFORM_${safeProjLabel}_${timestamp}`;
+                    window.print();
+                    setTimeout(() => { document.title = originalTitle; }, 500);
+                  }}
                   className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-md active:scale-[0.98]"
                 >
                   <Printer size={13} />
