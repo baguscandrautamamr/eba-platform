@@ -59,6 +59,8 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const [editingAttendance, setEditingAttendance] = useState<Attendance | null>(null);
   const [deleteConfirmAttId, setDeleteConfirmAttId] = useState<string | null>(null);
   const [historyDateFilter, setHistoryDateFilter] = useState('');
+  const [editOvertimeHours, setEditOvertimeHours] = useState<number | ''>(0);
+  const [editOvertimeNote, setEditOvertimeNote] = useState('');
 
   // Edit & Delete Kasbon states
   const [editingKasbon, setEditingKasbon] = useState<Kasbon | null>(null);
@@ -616,12 +618,12 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                           <div className="flex items-center gap-1">
                             <span className="font-bold text-orange-700 dark:text-orange-400">Jam Lembur:</span>
                             <input
-                              type="number"
-                              min="1"
+                              type="text"
+                              inputMode="numeric"
                               value={inlineOvertimes[emp.id]?.hours ?? ''}
                               onFocus={(e) => e.currentTarget.select()}
                               onChange={(e) => {
-                                const cleaned = e.target.value.replace(/^0+(?=\d)/, '');
+                                const cleaned = e.target.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
                                 setInlineOvertimes({
                                   ...inlineOvertimes,
                                   [emp.id]: {
@@ -748,13 +750,22 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                     <span className="text-[10px] text-gray-400">({grouped[date].length} {lang === 'id' ? 'pegawai' : 'workers'})</span>
                   </div>
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {grouped[date].map(rec => (
+                    {grouped[date].map(rec => {
+                      const recOvertime = overtimes.find(o =>
+                        o.employeeId === rec.employeeId && o.date === rec.date && o.projectId === rec.projectId
+                      );
+                      return (
                       <div key={rec.id} className="px-3 py-2 flex items-center justify-between gap-2 text-xs">
                         <div className="min-w-0 flex-1">
                           <span className="font-bold text-gray-900 dark:text-white">{rec.employeeName}</span>
                           {rec.projectName && (
                             <span className="ml-2 text-[9px] font-bold text-orange-600 bg-orange-50 dark:bg-orange-950/20 px-1.5 py-0.5 rounded">
                               {rec.projectName}
+                            </span>
+                          )}
+                          {recOvertime && (
+                            <span className="ml-1.5 text-[9px] font-bold text-purple-600 bg-purple-50 dark:bg-purple-950/20 px-1.5 py-0.5 rounded inline-flex items-center gap-0.5">
+                              <Clock size={9} /> {recOvertime.hours} {lang === 'id' ? 'jam lembur' : 'hrs OT'}
                             </span>
                           )}
                           {rec.note && <p className="text-[10px] text-gray-400 truncate">{rec.note}</p>}
@@ -765,7 +776,14 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             type="button"
-                            onClick={() => setEditingAttendance(rec)}
+                            onClick={() => {
+                              setEditingAttendance(rec);
+                              const existingOv = overtimes.find(o =>
+                                o.employeeId === rec.employeeId && o.date === rec.date && o.projectId === rec.projectId
+                              );
+                              setEditOvertimeHours(existingOv ? existingOv.hours : 0);
+                              setEditOvertimeNote(existingOv ? existingOv.note : '');
+                            }}
                             className="text-orange-600 hover:text-orange-800 p-1.5 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-950/20"
                             title={lang === 'id' ? 'Edit' : 'Edit'}
                           >
@@ -800,7 +818,8 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                           )}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ));
@@ -872,6 +891,47 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                   />
                 </div>
 
+                {/* Input/Edit Lembur untuk record ini */}
+                {editingAttendance.status === 'hadir' && (
+                  <div className="p-3 bg-orange-50/40 dark:bg-orange-950/10 border border-orange-100 dark:border-orange-900/30 rounded-xl space-y-2">
+                    <label className="text-[9px] font-bold text-orange-700 dark:text-orange-400 uppercase flex items-center gap-1">
+                      <Clock size={11} /> {lang === 'id' ? 'Jam Lembur (kosongkan jika tidak ada)' : 'Overtime Hours (leave empty if none)'}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={editOvertimeHours}
+                        onFocus={(e) => e.currentTarget.select()}
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+                          setEditOvertimeHours(cleaned === '' ? '' : Number(cleaned));
+                        }}
+                        placeholder="0"
+                        className="w-16 p-1.5 text-center text-xs border border-orange-200 dark:border-orange-900/40 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                      />
+                      <span className="text-[10px] text-gray-500">{lang === 'id' ? 'jam' : 'hrs'}</span>
+                      {(() => {
+                        const emp = employees.find(e => e.id === editingAttendance.employeeId);
+                        const rate = emp ? Math.round(emp.dailySalary / 8) : 0;
+                        const hrs = Number(editOvertimeHours) || 0;
+                        return hrs > 0 ? (
+                          <span className="text-[9px] text-gray-500 dark:text-gray-400">
+                            {formatRupiah(rate)}/jam = <span className="font-bold text-orange-700 dark:text-orange-400">{formatRupiah(rate * hrs)}</span>
+                          </span>
+                        ) : null;
+                      })()}
+                    </div>
+                    <input
+                      type="text"
+                      value={editOvertimeNote}
+                      onChange={(e) => setEditOvertimeNote(e.target.value)}
+                      placeholder={lang === 'id' ? 'Pekerjaan lembur (e.g. Pasang panel)...' : 'Overtime task description...'}
+                      className="w-full p-1.5 text-[11px] border border-orange-200 dark:border-orange-900/40 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                    />
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
                   <button
                     type="button"
@@ -884,7 +944,45 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                     type="button"
                     onClick={() => {
                       onUpdateAttendance?.(editingAttendance);
+
+                      // Proses lembur: cari existing record untuk employeeId+date+projectId
+                      const existingOv = overtimes.find(o =>
+                        o.employeeId === editingAttendance.employeeId &&
+                        o.date === editingAttendance.date &&
+                        o.projectId === editingAttendance.projectId
+                      );
+                      const hrs = Number(editOvertimeHours) || 0;
+                      const emp = employees.find(e => e.id === editingAttendance.employeeId);
+
+                      if (hrs > 0 && emp) {
+                        const hourlyRate = Math.round(emp.dailySalary / 8);
+                        if (existingOv) {
+                          onUpdateOvertime?.({
+                            ...existingOv,
+                            hours: hrs,
+                            hourlyRate,
+                            note: editOvertimeNote || existingOv.note
+                          });
+                        } else {
+                          onAddOvertime({
+                            employeeId: editingAttendance.employeeId,
+                            employeeName: editingAttendance.employeeName,
+                            date: editingAttendance.date,
+                            hours: hrs,
+                            hourlyRate,
+                            note: editOvertimeNote || (lang === 'id' ? 'Lembur Harian' : 'Daily Overtime'),
+                            projectId: editingAttendance.projectId,
+                            projectName: editingAttendance.projectName
+                          });
+                        }
+                      } else if (existingOv) {
+                        // Jam di-set 0/kosong tapi ada record lama -> hapus
+                        onDeleteOvertime?.(existingOv.id);
+                      }
+
                       setEditingAttendance(null);
+                      setEditOvertimeHours(0);
+                      setEditOvertimeNote('');
                     }}
                     className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl"
                   >
@@ -935,13 +1033,13 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                 <div className="space-y-1">
                   <label className="text-[9px] font-bold text-gray-400 uppercase">{lang === 'id' ? 'Jumlah Jam' : 'Hours'}</label>
                   <input
-                    type="number"
-                    min="1"
+                    type="text"
+                    inputMode="numeric"
                     required
                     value={ovHours || ''}
                     onFocus={(e) => e.currentTarget.select()}
                     onChange={(e) => {
-                      const cleaned = e.target.value.replace(/^0+(?=\d)/, '');
+                      const cleaned = e.target.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
                       setOvHours(cleaned === '' ? 0 : Number(cleaned));
                     }}
                     className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
@@ -1567,11 +1665,15 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">Jumlah Jam</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     required
-                    min="1"
                     value={editingOvertime.hours === 0 ? '' : editingOvertime.hours}
-                    onChange={(e) => setEditingOvertime({ ...editingOvertime, hours: Number(e.target.value) })}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => {
+                      const cleaned = e.target.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+                      setEditingOvertime({ ...editingOvertime, hours: cleaned === '' ? 0 : Number(cleaned) });
+                    }}
                     className="w-full px-3 py-2 text-xs border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl font-mono"
                   />
                 </div>
