@@ -62,7 +62,7 @@ export interface Attendance {
   date: string;
   employeeId: string;
   employeeName: string;
-  status: 'hadir' | 'absen' | 'izin' | 'sakit';
+  status: 'hadir' | 'absen' | 'izin' | 'sakit' | 'libur';
   note?: string;
   projectId?: string;
   projectName?: string;
