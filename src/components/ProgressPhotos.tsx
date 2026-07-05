@@ -296,6 +296,27 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
+  /**
+   * Konversi source gambar ke format yang bisa ditampilkan browser.
+   * - base64 (data:) → langsung dipakai
+   * - URL Google Drive → dikonversi ke format thumbnail yang bisa di-render
+   * - URL lain → dipakai apa adanya
+   */
+  const getDisplayableImageSrc = (src: string | undefined): string => {
+    if (!src) return '';
+    // base64 langsung dipakai
+    if (src.startsWith('data:')) return src;
+    // URL Google Drive → konversi ke thumbnail
+    if (src.includes('drive.google.com') || src.includes('drivesdk')) {
+      const fileId = extractDriveFileId(src);
+      if (fileId) {
+        // Format thumbnail Drive yang bisa di-render sebagai <img>
+        return `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
+      }
+    }
+    return src;
+  };
+
   // Simulated GPS details based on Project
   const getGpsForProject = (projId: string) => {
     if (projId === 'proj_1') return "-6.2088, 106.8456 (Gedung EBA - Jakarta Selatan)";
@@ -361,49 +382,26 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
           ctx.fillText(`GPS: ${gps}`, 20, canvas.height - 15);
         }
 
-        // Room Name Big Yellow Watermark — CENTERED, HIGHER, BIGGER
+        // Room Name Big Yellow Watermark
         if (room && room.trim() !== '') {
           ctx.save();
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           
-          // Bigger font: 7% of width, bounded between 32 and 72
-          const fontSize = Math.max(32, Math.min(72, Math.round(canvas.width * 0.07)));
+          // Calculate font size responsive to image width (e.g. 5.5% of width, bounded between 24 and 52)
+          const fontSize = Math.max(24, Math.min(52, Math.round(canvas.width * 0.055)));
           ctx.font = `bold ${fontSize}px "Inter", "Space Grotesk", "Helvetica Neue", sans-serif`;
           
           // Fill yellow
           ctx.fillStyle = '#facc15'; // Yellow-400
           
-          // Position: Center of image, above the metadata box — much higher
+          // Position: Bottom center, slightly above the metadata black overlay box (85px high)
           const x = canvas.width / 2;
-          const y = canvas.height - boxHeight - fontSize - 30;
+          const y = canvas.height - boxHeight - 35;
           
-          // Background pill behind text for contrast
-          const textWidth = ctx.measureText(room.toUpperCase()).width;
-          const pillPadX = 20;
-          const pillPadY = 10;
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-          ctx.beginPath();
-          const rx = x - textWidth / 2 - pillPadX;
-          const ry = y - fontSize / 2 - pillPadY;
-          const rw = textWidth + pillPadX * 2;
-          const rh = fontSize + pillPadY * 2;
-          const radius = 12;
-          ctx.moveTo(rx + radius, ry);
-          ctx.lineTo(rx + rw - radius, ry);
-          ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + radius);
-          ctx.lineTo(rx + rw, ry + rh - radius);
-          ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - radius, ry + rh);
-          ctx.lineTo(rx + radius, ry + rh);
-          ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - radius);
-          ctx.lineTo(rx, ry + radius);
-          ctx.quadraticCurveTo(rx, ry, rx + radius, ry);
-          ctx.fill();
-          
-          // Yellow text with dark outline
-          ctx.fillStyle = '#facc15';
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
-          ctx.lineWidth = 4;
+          // Dark outline for contrast and perfect readability
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+          ctx.lineWidth = 5;
           ctx.strokeText(room.toUpperCase(), x, y);
           ctx.fillText(room.toUpperCase(), x, y);
           ctx.restore();
@@ -592,22 +590,8 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
           folderId = await getOrCreateFolder(gdToken);
         }
 
-        // RE-APPLY watermark ke SEMUA foto dengan roomName saat ini
-        // (safety: memastikan semua foto punya watermark ruangan)
-        const activeRoom = roomName.trim();
-        const finalFiles: string[] = [];
         for (let idx = 0; idx < selectedFiles.length; idx++) {
-          const reWatermarked = await processImageAndApplyWatermark(
-            rawFiles[idx] || selectedFiles[idx], // pakai raw (original) kalau ada
-            activeProjectName,
-            includeGps ? activeGps : '',
-            activeRoom
-          );
-          finalFiles.push(reWatermarked);
-        }
-
-        for (let idx = 0; idx < finalFiles.length; idx++) {
-          const fileB64 = finalFiles[idx];
+          const fileB64 = selectedFiles[idx];
           const photoId = `ph_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
           const singlePayload: any = {
             id: photoId,
@@ -615,7 +599,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
             projectName: activeProjectName,
             date,
             time,
-            notes: finalFiles.length > 1 ? `${notes} (${idx + 1}/${finalFiles.length})` : notes,
+            notes: selectedFiles.length > 1 ? `${notes} (${idx + 1}/${selectedFiles.length})` : notes,
             images: [fileB64],
             gpsLocation: includeGps ? activeGps : undefined,
             driveUrls: [],
@@ -626,7 +610,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
 
           if (usingGas && autoUpload) {
             try {
-              setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${finalFiles.length} ke Google Drive (Cloud)...` : `Uploading photo ${idx + 1}/${finalFiles.length} to Google Drive (Cloud)...`);
+              setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${selectedFiles.length} ke Google Drive (Cloud)...` : `Uploading photo ${idx + 1}/${selectedFiles.length} to Google Drive (Cloud)...`);
               const uploadRes = await uploadPhotoViaGas(
                 gasUrl,
                 fileB64,
@@ -652,7 +636,7 @@ export const ProgressPhotos: React.FC<ProgressPhotosProps> = ({
           } else if (gdToken && autoUpload && folderId) {
             try {
               if (role === 'admin') {
-                setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${finalFiles.length} ke Google Drive...` : `Uploading photo ${idx + 1}/${finalFiles.length} to Google Drive...`);
+                setBackupStatus(lang === 'id' ? `Mengunggah foto ${idx + 1}/${selectedFiles.length} ke Google Drive...` : `Uploading photo ${idx + 1}/${selectedFiles.length} to Google Drive...`);
               }
               const uploadRes = await uploadPhotoToDrive(gdToken, fileB64, filename, folderId);
               if (uploadRes && uploadRes.webViewLink) {
@@ -1226,7 +1210,7 @@ function exportDatabaseToSheets(db, folder) {
                               : 'AUTOMATIC'}
                           </span>
                         </div>
-                        <p className={`text-[11px] truncate max-w-[180px] sm:max-w-sm md:max-w-md font-mono mt-0.5 ${
+                        <p className={`text-[11px] truncate max-w-sm sm:max-w-md font-mono mt-0.5 ${
                           gasUrl && (gasUrl.includes('/edit') || gasUrl.includes('/home') || gasUrl.includes('/d/') || !gasUrl.includes('/exec'))
                             ? 'text-red-500 font-bold'
                             : 'text-gray-400'
@@ -1822,10 +1806,18 @@ function exportDatabaseToSheets(db, folder) {
                 }`}
               >
                 <img
-                  src={ph.images[0]}
+                  src={getDisplayableImageSrc(ph.images[0] || ph.driveUrls?.[0])}
                   alt="Progress thumbnail"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    // Fallback: coba pakai driveUrls kalau images gagal
+                    const fallback = getDisplayableImageSrc(ph.driveUrls?.[0]);
+                    if (fallback && img.src !== fallback) {
+                      img.src = fallback;
+                    }
+                  }}
                 />
                 
                 {/* Room Name Badge */}
@@ -1910,10 +1902,15 @@ function exportDatabaseToSheets(db, folder) {
                 onClick={() => setActiveLightboxPhoto(null)}
               >
                 <img
-                  src={activeLightboxPhoto.images[0]}
+                  src={getDisplayableImageSrc(activeLightboxPhoto.images[0] || activeLightboxPhoto.driveUrls?.[0])}
                   alt="Fullscreen Doc"
                   className="max-h-full max-w-full object-contain hover:opacity-90 transition-opacity"
                   referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    const fallback = getDisplayableImageSrc(activeLightboxPhoto.driveUrls?.[0]);
+                    if (fallback && img.src !== fallback) img.src = fallback;
+                  }}
                   title={lang === 'id' ? 'Klik gambar untuk menutup' : 'Click image to close'}
                 />
                 
@@ -2146,35 +2143,34 @@ function exportDatabaseToSheets(db, folder) {
                 break-after: page !important;
                 display: flex !important;
                 flex-direction: column !important;
+                justify-content: space-between !important;
                 box-sizing: border-box !important;
-                padding: 10mm 12mm !important;
+                padding: 15mm !important;
                 background: white !important;
                 color: black !important;
               }
               .print-grid {
                 display: grid !important;
-                grid-template-columns: 1fr 1fr !important;
-                grid-template-rows: repeat(3, 1fr) !important;
-                gap: 0px !important;
+                grid-template-cols: repeat(2, minmax(0, 1fr)) !important;
+                gap: 16px !important;
                 border: 2px solid black !important;
-                padding: 0 !important;
-                flex: 1 !important;
+                padding: 16px !important;
+                flex-grow: 1 !important;
                 background: white !important;
               }
               .print-cell {
                 border: 1px solid black !important;
+                aspect-ratio: 4/3 !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
                 overflow: hidden !important;
                 background: white !important;
-                min-height: 0 !important;
               }
               .print-img {
                 width: 100% !important;
                 height: 100% !important;
                 object-fit: cover !important;
-                display: block !important;
               }
               @page {
                 size: A4 portrait;
@@ -2278,7 +2274,7 @@ function exportDatabaseToSheets(db, folder) {
             <div className="space-y-8 select-none">
               {(() => {
                 const scopePhotos = getPhotosToPrint();
-                const allImages = scopePhotos.flatMap(ph => ph.images);
+                const allImages = scopePhotos.flatMap(ph => (ph.images && ph.images.length > 0 ? ph.images : (ph.driveUrls || []))).map(src => getDisplayableImageSrc(src)).filter(Boolean);
                 
                 if (allImages.length === 0) {
                   return (
@@ -2298,32 +2294,31 @@ function exportDatabaseToSheets(db, folder) {
                   return (
                     <div
                       key={pageIdx}
-                      className="print-page bg-white text-black shadow-2xl border border-gray-750/50 mx-auto flex flex-col"
+                      className="print-page bg-white text-black p-[15mm] shadow-2xl border border-gray-750/50 mx-auto flex flex-col justify-between"
                       style={{
                         width: '210mm',
                         height: '297mm',
-                        boxSizing: 'border-box',
-                        padding: '10mm 12mm'
+                        boxSizing: 'border-box'
                       }}
                     >
                       {/* Header */}
-                      <div className="text-center mb-3">
+                      <div className="text-center mb-6">
                         <h1 className="text-xs sm:text-sm font-sans font-black underline uppercase tracking-wide text-black max-w-[95%] mx-auto leading-relaxed text-center">
                           {customPrintTitle || (lang === 'id' ? 'LAPORAN PROGRESS DOKUMENTASI' : 'PROJECT SITE PROGRESS DOCUMENTATION REPORT')}
                         </h1>
                       </div>
 
-                      {/* 3x2 Grid Table - Compact */}
-                      <div className="print-grid border-2 border-black flex-1 bg-white" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: 'repeat(3, 1fr)', gap: 0 }}>
+                      {/* 3x2 Grid Table */}
+                      <div className="print-grid grid grid-cols-2 gap-4 border-2 border-black p-4 flex-grow bg-white">
                         {pageImages.map((src, imgIdx) => (
-                          <div key={imgIdx} className="print-cell border border-black flex items-center justify-center overflow-hidden bg-white" style={{ minHeight: 0 }}>
-                            <img src={src} className="print-img w-full h-full object-cover block" referrerPolicy="no-referrer" />
+                          <div key={imgIdx} className="print-cell border border-black aspect-[4/3] flex items-center justify-center overflow-hidden bg-white">
+                            <img src={src} className="print-img w-full h-full object-cover" referrerPolicy="no-referrer" />
                           </div>
                         ))}
                       </div>
 
                       {/* Footer */}
-                      <div className="flex items-center justify-between text-[10px] text-gray-500 mt-2 pt-1">
+                      <div className="flex items-center justify-between text-[10px] text-gray-500 mt-4 border-t border-gray-200 pt-2 print:border-t-0">
                         <span className="font-bold uppercase tracking-wider text-gray-400">
                           {lang === 'id' ? 'Laporan Progress Dokumentasi' : 'Documentation Progress Report'}
                         </span>
@@ -2342,7 +2337,7 @@ function exportDatabaseToSheets(db, folder) {
           <div className="hidden print:block">
             {(() => {
               const scopePhotos = getPhotosToPrint();
-              const allImages = scopePhotos.flatMap(ph => ph.images);
+              const allImages = scopePhotos.flatMap(ph => (ph.images && ph.images.length > 0 ? ph.images : (ph.driveUrls || []))).map(src => getDisplayableImageSrc(src)).filter(Boolean);
               const pageSize = 6;
               const pagesCount = Math.ceil(allImages.length / pageSize);
               
@@ -2351,30 +2346,30 @@ function exportDatabaseToSheets(db, folder) {
                 return (
                   <div
                     key={pageIdx}
-                    className="print-page bg-white text-black flex flex-col"
+                    className="print-page bg-white text-black flex flex-col justify-between"
                     style={{
                       width: '210mm',
                       height: '297mm',
                       pageBreakAfter: 'always',
                       boxSizing: 'border-box',
-                      padding: '10mm 12mm'
+                      padding: '15mm'
                     }}
                   >
-                    <div className="text-center mb-3">
+                    <div className="text-center mb-6">
                       <h1 className="text-sm font-black underline uppercase tracking-wide text-black max-w-[95%] mx-auto leading-relaxed text-center">
                         {customPrintTitle || (lang === 'id' ? 'LAPORAN PROGRESS DOKUMENTASI' : 'PROJECT SITE PROGRESS DOCUMENTATION REPORT')}
                       </h1>
                     </div>
 
-                    <div className="print-grid border-2 border-black flex-1 bg-white" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: 'repeat(3, 1fr)', gap: 0 }}>
+                    <div className="print-grid grid grid-cols-2 gap-4 border-2 border-black p-4 flex-grow bg-white">
                       {pageImages.map((src, imgIdx) => (
-                        <div key={imgIdx} className="print-cell border border-black flex items-center justify-center overflow-hidden bg-white" style={{ minHeight: 0 }}>
-                          <img src={src} className="print-img w-full h-full object-cover block" referrerPolicy="no-referrer" />
+                        <div key={imgIdx} className="print-cell border border-black aspect-[4/3] flex items-center justify-center overflow-hidden bg-white">
+                          <img src={src} className="print-img w-full h-full object-cover" referrerPolicy="no-referrer" />
                         </div>
                       ))}
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] text-gray-500 mt-2 pt-1">
+                    <div className="flex items-center justify-between text-[10px] text-gray-500 mt-4 border-t border-gray-200 pt-2 print:border-t-0">
                       <span className="font-bold uppercase tracking-wider text-gray-400">
                         {lang === 'id' ? 'Laporan Progress Dokumentasi' : 'Documentation Progress Report'}
                       </span>
