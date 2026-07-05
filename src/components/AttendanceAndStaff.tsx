@@ -108,7 +108,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   // New Overtime Form
   const [ovEmpId, setOvEmpId] = useState(employees[0]?.id || '');
   const [ovHours, setOvHours] = useState(2);
-  const [ovRate, setOvRate] = useState('25.000');
+  const [ovRate, setOvRate] = useState(formatNumberInput(String(Math.round((employees[0]?.dailySalary || 200000) / 8))));
   const [ovNote, setOvNote] = useState('');
 
   // Payroll Slip Generator state
@@ -177,13 +177,15 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
         if (emp) {
           const empState = dailyPresence[empId] || { status: 'hadir', note: '', projectId: projects[0]?.id || '' };
           const proj = projects.find(p => p.id === empState.projectId);
-          // Standard rate/hour is 25000 or custom default
+          // Tarif lembur per jam mengikuti gaji harian masing-masing pegawai
+          // (gaji harian ÷ 8 jam kerja normal), bukan angka flat untuk semua orang.
+          const hourlyRate = Math.round(emp.dailySalary / 8);
           onAddOvertime({
             employeeId: emp.id,
             employeeName: emp.name,
             date: attendanceDate,
             hours: ovState.hours,
-            hourlyRate: 25000,
+            hourlyRate,
             note: ovState.note || (lang === 'id' ? 'Lembur Harian' : 'Daily Overtime'),
             projectId: proj?.id || '',
             projectName: proj?.name || ''
@@ -226,7 +228,8 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
       note: ovNote
     });
     setOvHours(2);
-    setOvRate('25.000');
+    const emp = employees.find(e => e.id === ovEmpId);
+    setOvRate(formatNumberInput(String(Math.round((emp?.dailySalary || 200000) / 8))));
     setOvNote('');
     alert('Lembur berhasil dicatat!');
   };
@@ -630,6 +633,15 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                               className="w-14 p-1.5 text-center border border-orange-200 dark:border-orange-900/40 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                             />
                           </div>
+                          {(() => {
+                            const rate = Math.round(emp.dailySalary / 8);
+                            const hrs = inlineOvertimes[emp.id]?.hours || 0;
+                            return (
+                              <span className="text-[9px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                                {formatRupiah(rate)}/jam × {hrs} = <span className="font-bold text-orange-700 dark:text-orange-400">{formatRupiah(rate * hrs)}</span>
+                              </span>
+                            );
+                          })()}
                           <div className="flex-1 flex items-center gap-1">
                             <span className="font-bold text-orange-700 dark:text-orange-400">Pekerjaan:</span>
                             <input
@@ -905,7 +917,12 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
                 <label className="text-[9px] font-bold text-gray-400 uppercase">Nama Pekerja</label>
                 <select
                   value={ovEmpId}
-                  onChange={(e) => setOvEmpId(e.target.value)}
+                  onChange={(e) => {
+                    setOvEmpId(e.target.value);
+                    // Auto-suggest tarif lembur sesuai gaji harian pegawai (bisa diedit manual)
+                    const emp = employees.find(x => x.id === e.target.value);
+                    if (emp) setOvRate(formatNumberInput(String(Math.round(emp.dailySalary / 8))));
+                  }}
                   className="w-full p-2 text-xs border rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white border-gray-200 dark:border-gray-700"
                 >
                   {filteredEmployees.map(e => (
