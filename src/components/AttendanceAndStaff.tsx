@@ -69,6 +69,7 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   // Edit & Delete Overtime states
   const [editingOvertime, setEditingOvertime] = useState<Overtime | null>(null);
   const [deleteConfirmOvId, setDeleteConfirmOvId] = useState<string | null>(null);
+  const [overtimeHistoryPeriod, setOvertimeHistoryPeriod] = useState<'day' | 'week' | 'month'>('day');
 
   // Inline Overtime state for Attendance logging
   const [inlineOvertimes, setInlineOvertimes] = useState<Record<string, { enabled: boolean; hours: number; note: string }>>({});
@@ -82,6 +83,48 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
   const filteredOvertimes = overtimes.filter(o => 
     o.employeeName.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  /**
+   * Kelompokkan riwayat lembur berdasarkan periode: Harian / Mingguan / Bulanan.
+   * Tiap grup punya label, daftar transaksi, total jam, dan total rupiah.
+   */
+  const getOvertimeGroups = (period: 'day' | 'week' | 'month') => {
+    const getPeriodKey = (dateStr: string): { key: string; label: string } => {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return { key: dateStr, label: dateStr };
+      if (period === 'day') {
+        return { key: dateStr, label: dateStr };
+      }
+      if (period === 'week') {
+        const tmp = new Date(d);
+        tmp.setHours(0, 0, 0, 0);
+        tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+        const week1 = new Date(tmp.getFullYear(), 0, 4);
+        const weekNo = 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+        const key = `${tmp.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+        return { key, label: (lang === 'id' ? 'Minggu ' : 'Week ') + weekNo + ', ' + tmp.getFullYear() };
+      }
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const monthNames = lang === 'id'
+        ? ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+        : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}` };
+    };
+
+    const groups = new Map<string, { key: string; label: string; items: Overtime[]; totalHours: number; totalAmount: number }>();
+    filteredOvertimes.forEach(o => {
+      const { key, label } = getPeriodKey(o.date);
+      if (!groups.has(key)) {
+        groups.set(key, { key, label, items: [], totalHours: 0, totalAmount: 0 });
+      }
+      const g = groups.get(key)!;
+      g.items.push(o);
+      g.totalHours += o.hours;
+      g.totalAmount += o.totalAmount;
+    });
+
+    return Array.from(groups.values()).sort((a, b) => b.key.localeCompare(a.key));
+  };
 
   const filteredKasbons = kasbons.filter(k => 
     k.employeeName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -1085,68 +1128,133 @@ export const AttendanceAndStaff: React.FC<AttendanceAndStaffProps> = ({
             </form>
           </div>
 
-          {/* Overtime lists */}
-          <div className="lg:col-span-2 bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm space-y-4">
-            <h4 className="text-xs font-bold text-gray-950 dark:text-gray-100">
-              {lang === 'id' ? 'Riwayat Lembur Lapangan' : 'Overtime History logs'}
-            </h4>
-            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-              {filteredOvertimes.length === 0 ? (
-                <div className="py-8 text-center text-gray-450 dark:text-gray-500 text-xs font-medium">
-                  {lang === 'id' ? 'Tidak ada catatan lembur yang cocok.' : 'No matching overtime logs.'}
-                </div>
-              ) : (
-                filteredOvertimes.map(o => (
-                  <div key={o.id} className="p-3 bg-gray-50/50 dark:bg-gray-900/10 border border-gray-100 dark:border-gray-750 rounded-xl flex items-center justify-between text-xs animate-in fade-in duration-100 gap-3">
-                    <div className="flex-1 min-w-0">
-                      <span className="font-bold text-gray-900 dark:text-white">{o.employeeName}</span>
-                      <p className="text-[10px] text-gray-500 mt-0.5 truncate">{o.note} | <span className="font-mono">{o.date}</span></p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <span className="font-bold font-mono text-gray-900 dark:text-white">{o.hours} Jam</span>
-                        {!isMandor && <p className="text-[10px] text-emerald-600 font-mono">+{formatRupiah(o.totalAmount)}</p>}
-                      </div>
-                      
-                      <div className="flex items-center gap-1.5 pl-2 border-l border-gray-100 dark:border-gray-800">
-                        <button
-                          onClick={() => setEditingOvertime(o)}
-                          className="text-orange-600 hover:text-orange-800 p-1 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-950/20 transition-colors"
-                          title={lang === 'id' ? 'Edit' : 'Edit'}
-                        >
-                          <Edit2 size={13} />
-                        </button>
+          {/* Panel kanan: Tarif per Pegawai + Riwayat Lembur */}
+          <div className="lg:col-span-2 space-y-6">
 
-                        {deleteConfirmOvId === o.id ? (
-                          <div className="flex items-center gap-1 bg-red-50 dark:bg-red-950/20 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900/30">
-                            <button
-                              onClick={() => { if (onDeleteOvertime) onDeleteOvertime(o.id); setDeleteConfirmOvId(null); }}
-                              className="text-[9px] font-extrabold text-red-650 hover:text-red-800 uppercase tracking-wider"
-                            >
-                              {lang === 'id' ? 'Ya' : 'Yes'}
-                            </button>
-                            <span className="text-[9px] text-gray-400">|</span>
-                            <button
-                              onClick={() => setDeleteConfirmOvId(null)}
-                              className="text-[9px] font-extrabold text-gray-550 hover:text-gray-750 dark:text-gray-400 dark:hover:text-gray-200 uppercase tracking-wider"
-                            >
-                              {lang === 'id' ? 'Batal' : 'No'}
-                            </button>
+            {/* SECTION 1: Tarif Lembur per Pegawai (referensi cepat) */}
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm space-y-3">
+              <div>
+                <h4 className="text-xs font-bold text-gray-950 dark:text-gray-100">
+                  {lang === 'id' ? 'Tarif Lembur per Pegawai' : 'Overtime Rate per Employee'}
+                </h4>
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  {lang === 'id' ? 'Dihitung otomatis dari gaji harian ÷ 8 jam kerja normal' : 'Auto-calculated from daily wage ÷ 8 normal work hours'}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1">
+                {employees.map(emp => (
+                  <div key={emp.id} className="flex items-center justify-between p-2.5 bg-gray-50/60 dark:bg-gray-900/20 border border-gray-100 dark:border-gray-800 rounded-xl text-xs">
+                    <div className="min-w-0">
+                      <span className="font-bold text-gray-900 dark:text-white block truncate">{emp.name}</span>
+                      <span className="text-[10px] text-gray-400">{emp.role}</span>
+                    </div>
+                    {!isMandor && (
+                      <span className="font-mono font-bold text-orange-600 dark:text-orange-400 whitespace-nowrap ml-2">
+                        {formatRupiah(Math.round(emp.dailySalary / 8))}/{lang === 'id' ? 'jam' : 'hr'}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* SECTION 2: Riwayat Lembur — dikelompokkan Harian / Mingguan / Bulanan */}
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <h4 className="text-xs font-bold text-gray-950 dark:text-gray-100">
+                  {lang === 'id' ? 'Riwayat Lembur Lapangan' : 'Overtime History logs'}
+                </h4>
+                <div className="flex bg-gray-100 dark:bg-gray-900 rounded-lg p-1 text-[10px] font-bold w-fit">
+                  {(['day', 'week', 'month'] as const).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setOvertimeHistoryPeriod(p)}
+                      className={`px-3 py-1.5 rounded-md transition-colors ${
+                        overtimeHistoryPeriod === p
+                          ? 'bg-orange-500 text-white'
+                          : 'text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800'
+                      }`}
+                    >
+                      {p === 'day' ? (lang === 'id' ? 'Harian' : 'Daily') :
+                       p === 'week' ? (lang === 'id' ? 'Mingguan' : 'Weekly') :
+                       (lang === 'id' ? 'Bulanan' : 'Monthly')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+                {getOvertimeGroups(overtimeHistoryPeriod).length === 0 ? (
+                  <div className="py-8 text-center text-gray-450 dark:text-gray-500 text-xs font-medium">
+                    {lang === 'id' ? 'Tidak ada catatan lembur yang cocok.' : 'No matching overtime logs.'}
+                  </div>
+                ) : (
+                  getOvertimeGroups(overtimeHistoryPeriod).map(group => (
+                    <div key={group.key} className="border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden">
+                      <div className="bg-gray-50 dark:bg-gray-900/40 px-3 py-2 flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300">{group.label}</span>
+                        <span className="text-[10px] text-gray-500">
+                          {group.totalHours} {lang === 'id' ? 'jam' : 'hrs'}
+                          {!isMandor && <span className="ml-1.5 font-bold text-emerald-600">{formatRupiah(group.totalAmount)}</span>}
+                        </span>
+                      </div>
+                      <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                        {group.items.map(o => (
+                          <div key={o.id} className="p-3 flex items-center justify-between text-xs animate-in fade-in duration-100 gap-3">
+                            <div className="flex-1 min-w-0">
+                              <span className="font-bold text-gray-900 dark:text-white">{o.employeeName}</span>
+                              <p className="text-[10px] text-gray-500 mt-0.5 truncate">{o.note} | <span className="font-mono">{o.date}</span></p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <span className="font-bold font-mono text-gray-900 dark:text-white">{o.hours} Jam</span>
+                                {!isMandor && <p className="text-[10px] text-emerald-600 font-mono">+{formatRupiah(o.totalAmount)}</p>}
+                              </div>
+
+                              <div className="flex items-center gap-1.5 pl-2 border-l border-gray-100 dark:border-gray-800">
+                                <button
+                                  onClick={() => setEditingOvertime(o)}
+                                  className="text-orange-600 hover:text-orange-800 p-1 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-950/20 transition-colors"
+                                  title={lang === 'id' ? 'Edit' : 'Edit'}
+                                >
+                                  <Edit2 size={13} />
+                                </button>
+
+                                {deleteConfirmOvId === o.id ? (
+                                  <div className="flex items-center gap-1 bg-red-50 dark:bg-red-950/20 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900/30">
+                                    <button
+                                      onClick={() => { if (onDeleteOvertime) onDeleteOvertime(o.id); setDeleteConfirmOvId(null); }}
+                                      className="text-[9px] font-extrabold text-red-650 hover:text-red-800 uppercase tracking-wider"
+                                    >
+                                      {lang === 'id' ? 'Ya' : 'Yes'}
+                                    </button>
+                                    <span className="text-[9px] text-gray-400">|</span>
+                                    <button
+                                      onClick={() => setDeleteConfirmOvId(null)}
+                                      className="text-[9px] font-extrabold text-gray-550 hover:text-gray-750 dark:text-gray-400 dark:hover:text-gray-200 uppercase tracking-wider"
+                                    >
+                                      {lang === 'id' ? 'Batal' : 'No'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setDeleteConfirmOvId(o.id)}
+                                    className="text-red-500 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                                    title={lang === 'id' ? 'Hapus' : 'Delete'}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                        ) : (
-                          <button
-                            onClick={() => setDeleteConfirmOvId(o.id)}
-                            className="text-red-500 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
-                            title={lang === 'id' ? 'Hapus' : 'Delete'}
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        )}
+                        ))}
                       </div>
                     </div>
-                  </div>
-                ))
-              )}
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
